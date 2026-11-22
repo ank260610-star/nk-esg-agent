@@ -182,3 +182,60 @@ class TestCompareToolIntegration:
                                        "newer_record_id": "r_missing",
                                        "expected_revision": 3}})
         assert r.status_code in (403, 404)
+
+
+class TestScoreToolIntegration:
+    """Task 5: calculate_score / get_rulebook 走 /agent/tool；复核走独立用户会话。"""
+
+    def _all_unknown_checks(self):
+        ids = ["C01", "C02", "C03", "C04", "Q01", "Q02", "Q03", "Q04",
+               "B01", "B02", "B03", "B04", "Y01", "Y02", "Y03", "Y04",
+               "T01", "T02", "T03", "T04"]
+        return [
+            {"check_id": cid, "rule_version": "disclosure-v0.1", "status": "unknown",
+             "evidence_ids": [], "reason": "待复核", "missing_information": [],
+             "suggestion": "", "target_key": None, "task_id": "task_svc",
+             "origin": "model", "review_state": "unreviewed", "revision": 7, "is_current": True}
+            for cid in ids
+        ]
+
+    def test_get_rulebook_reachable_via_agent_tool(self):
+        c = build_client()
+        r = c.post("/agent/tool", headers={"x-agent-token": "tok_svc"},
+                   json={"tool": "get_rulebook", "arguments": {}})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["ok"] is True
+        assert body["data"]["experimental"] is True
+        assert len(body["data"]["checks"]) == 20
+
+    def test_calculate_score_hand_case_via_agent_tool(self):
+        c = build_client()
+        checks = self._all_unknown_checks()
+        # C01=met, C02=partial
+        for ch in checks:
+            if ch["check_id"] == "C01":
+                ch.update(status="met", origin="manual", review_state="confirmed",
+                          evidence_ids=["ev_e01"])
+            if ch["check_id"] == "C02":
+                ch.update(status="partial", origin="manual", review_state="confirmed",
+                          evidence_ids=["ev_e03"])
+        app = c.app
+        app.state.checks = {"task_svc": checks}
+        r = c.post("/agent/tool", headers={"x-agent-token": "tok_svc"},
+                   json={"tool": "calculate_score", "arguments": {}})
+        assert r.status_code == 200, r.text
+        d = r.json()["data"]
+        assert d["coverage"] == "0.125"
+        assert d["reference_score"] == "75"
+        assert d["lower_bound"] == "9.375"
+        assert d["upper_bound"] == "96.875"
+        assert d["final_score"] is None
+        assert d["label"] == "insufficient_evidence"
+
+    def test_review_rejects_agent_token(self):
+        c = build_client()
+        r = c.post("/tasks/task_svc/review", headers={"x-agent-token": "tok_svc"},
+                   json={"action": "set_check_status", "check_id": "C01",
+                         "new_status": "met", "reason": "已核对", "expected_revision": 7})
+        assert r.status_code == 403

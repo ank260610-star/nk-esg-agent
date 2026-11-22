@@ -16,6 +16,8 @@ from .run_jobs import AgentRunStore
 from .retrieval import EvidenceStore, search_evidence as do_search
 from .extraction import ExtractionDeps, extract_metrics as do_extract, RevisionChanged
 from .comparison import compare_records as do_compare
+from .scoring import load_rulebook, score_checks as do_score
+from .review import ReviewStore, ReviewCommand, apply_review as do_review, ReviewError
 
 
 def error_envelope(code: str, message: str, retryable: bool = False) -> dict:
@@ -43,6 +45,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         model_fn=lambda ctx: [], extractor_version="backend-default",
         model_id=None, prompt_version=None,
     )
+    # Task 5 评分：规则书一次性加载；检查项按 task_id 存（真实实现应入 SQLite）
+    app.state.rulebook = load_rulebook()
+    app.state.checks: dict[str, list] = {}
+    app.state.review_store = ReviewStore()
 
     @app.get("/health")
     def health():
@@ -195,16 +201,79 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "task_id": bound,
                 "revision": current_revision,
             }
+        if tool == "get_rulebook":
+            rec = store.get(bound)
+            return {
+                "ok": True,
+                "data": app.state.rulebook,
+                "error": None,
+                "task_id": bound,
+                "revision": rec.revision if rec else 0,
+            }
+        if tool == "calculate_score":
+            # 检查项以服务端仓储为准；task_id 来自令牌，模型不能自选
+            checks = app.state.checks.get(bound, [])
+            rec = store.get(bound)
+            current_revision = rec.revision if rec else 0
+            try:
+                result = do_score(checks, app.state.rulebook)
+            except Exception as ex:
+                return JSONResponse(status_code=422,
+                                    content={**error_envelope("INVALID_CHECKS", str(ex)),
+                                             "task_id": bound, "revision": current_revision})
+            result["revision"] = current_revision
+            return {
+                "ok": True,
+                "data": result,
+                "error": None,
+                "task_id": bound,
+                "revision": current_revision,
+            }
         return JSONResponse(status_code=403,
                             content=error_envelope("FORBIDDEN", "tool not in whitelist"))
 
     @app.post("/tasks/{task_id}/review")
-    def user_review(task_id: str, x_agent_token: str | None = Header(default=None)):
-        """人工复核只走用户会话 + CSRF；Agent 令牌无权调用。"""
+    async def user_review(task_id: str, request: Request,
+                          x_agent_token: str | None = Header(default=None),
+                          x_user: str | None = Header(default=None)):
+        """人工复核只走用户会话；Agent 令牌一律无权调用。"""
         if x_agent_token:
             return JSONResponse(status_code=403,
                                 content=error_envelope("FORBIDDEN", "agent token cannot review"))
-        return JSONResponse(status_code=401,
-                            content=error_envelope("UNAUTHORIZED", "user session required"))
+        if not x_user:
+            return JSONResponse(status_code=401,
+                                content=error_envelope("UNAUTHORIZED", "user session required"))
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse(status_code=400,
+                                content=error_envelope("INVALID_INPUT", "invalid JSON"))
+        cmd = ReviewCommand(
+            action=body.get("action", "set_check_status"),
+            check_id=body.get("check_id"), new_status=body.get("new_status"),
+            reason=body.get("reason", ""),
+            expected_revision=body.get("expected_revision", 0),
+            target_key=body.get("target_key"),
+        )
+        rstore: ReviewStore = app.state.review_store
+        # 同步任务仓储 revision：复核仓储未建任务时以主仓储当前 revision 初始化
+        main_rec = store.get(task_id)
+        if task_id not in rstore._tasks and main_rec is not None:
+            rstore.create_task(task_id, revision=main_rec.revision)
+        try:
+            task = do_review(rstore, task_id, cmd, actor=x_user, is_agent=False)
+        except ReviewError as ex:
+            status = 409 if ex.code == "REVISION_CONFLICT" else 400
+            payload = error_envelope(ex.code, str(ex), retryable=(status == 409))
+            payload["task_id"] = task_id
+            return JSONResponse(status_code=status, content=payload)
+        # 主仓储 revision 与复核仓储同步，旧评分失效
+        if main_rec is not None:
+            main_rec.revision = task["revision"]
+        score = rstore.get_score(task_id)
+        if score is not None:
+            score["is_current"] = False
+        return {"ok": True, "data": task, "error": None,
+                "task_id": task_id, "revision": task["revision"]}
 
     return app

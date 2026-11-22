@@ -190,3 +190,42 @@ extract 产物按 record_id 登记；compare 按 ID 取记录并做 task 归属�
 （method_text 默认空触发 METHOD_UNCONFIRMED）。
 
 **仍未完成**：Task 5 评分与人工复核、Task 6/7 页面与完整演示链。
+
+---
+
+## 闸门 D 前置（Task 5：版本化评分与人工复核）— 通过
+
+记录时间：2026-11-22。
+
+新增模块：
+- `scoring.py`：`score_checks(checks, rulebook)` 严格实现 handoff §4.1 固定公式，
+  Decimal 未舍入值：coverage=K/A、reference=100P/K、区间=[100P/A, 100(P+A-K)/A]；
+  coverage=1 → final=reference，否则 final=null；A=0 → 全 null/no_applicable_items；
+  K=0 且 A>0 → coverage=0、区间[0,100]、参考分 null。五维各自同逻辑。
+  校验：候选状态合法性、自动 not_met 无证据拒绝（NOT_MET_NEEDS_EVIDENCE）、
+  自动 N/A 拒绝（NA_NEEDS_MANUAL，N/A 仅人工确认）、重复检查拒绝、20 项/权重和=1/
+  同维等权/单子条件无 partial。
+- `review.py`：`apply_review` 原子复核——理由非空、旧 revision 返回 409、
+  Agent/模型令牌一律拒绝（AGENT_CANNOT_REVIEW）、审计事件、revision 递增、
+  旧评分 is_current=false；`invalidate_checks_for_metric` 使核心指标变更后关联检查
+  失效为 unknown/unreviewed（如 E01 变更影响 C01/Q01/Q02/Y01）。
+- `rules_registry.py`：维度权重/检查项归属/指标→检查依赖映射。
+- `rules/disclosure-v0.1.json`：20 项试验规则（格式用 JSON 而非 YAML——本机无 PyYAML，
+  契约体系与 metric-dictionary 均用 JSON，避免引入依赖；字段严格对齐契约 Rulebook，
+  source_refs 全标 unverified、experimental=true、网页须标"试验规则非官方评分"）。
+
+服务端接入：`get_rulebook` / `calculate_score` 加入 `/agent/tool` 白名单；
+检查项由服务端 `app.state.checks` 提供、task_id 来自令牌，模型不能自选；
+`/tasks/{id}/review` 仅用户会话（x-user header），agent token 403。
+
+**手算用例逐字段核对契约示例 `calculate_score.success.json` 完全一致**：
+C01=met、C02=partial、其余 unknown → P=9.375、K=12.5、A=100、
+coverage=0.125、参考分75、区间[9.375,96.875]、final=null、label=insufficient_evidence；
+维度分 completeness cov=0.5/ref=75/[37.5,87.5]，其余四维 K=0→区间[0,100]/参考分 null。
+修正一处展示格式（维度 applicable_weight 无 N/A 时用规则定义的 `0.20` 而非计算值 `0.2`）。
+
+测试：新增 `test_scoring.py` 21 项 + `test_review.py` 9 项 + 集成 3 项；
+全量 **127 passed + 30 subtests**。
+
+**仍未完成**：Task 6/7 页面、PDF 定位与同版本导出、完整演示链；
+`parse_report` 服务端契约（revision 递增+幂等，属业务仓储）。
