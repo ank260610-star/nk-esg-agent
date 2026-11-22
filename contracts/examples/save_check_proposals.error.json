@@ -1,0 +1,11 @@
+{
+  "ok": false,
+  "data": null,
+  "error": {
+    "code": "INVALID_STATE",
+    "message": "模拟错误：INVALID_STATE，请按契约处理。",
+    "retryable": false
+  },
+  "task_id": "mock_task_001",
+  "revision": 7
+}

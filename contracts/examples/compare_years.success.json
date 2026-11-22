@@ -1,0 +1,21 @@
+{
+  "ok": true,
+  "data": {
+    "comparison_id": "mock_comparison_001",
+    "older_record_id": "mock_metric_2023",
+    "newer_record_id": "mock_metric_2024",
+    "status": "comparable",
+    "reason_codes": [],
+    "delta": "20.00",
+    "percent_change": "25",
+    "unit": "MWh",
+    "evidence_ids": [
+      "mock_evidence_001"
+    ],
+    "revision": 7,
+    "is_current": true
+  },
+  "error": null,
+  "task_id": "mock_task_001",
+  "revision": 7
+}

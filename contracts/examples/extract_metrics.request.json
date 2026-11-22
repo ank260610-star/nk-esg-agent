@@ -1,0 +1,10 @@
+{
+  "task_id": "mock_task_001",
+  "expected_revision": 6,
+  "metric_ids": [
+    "E04"
+  ],
+  "years": [
+    2024
+  ]
+}

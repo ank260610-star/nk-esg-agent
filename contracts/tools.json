@@ -1,0 +1,107 @@
+{
+  "contract_version": "0.2.0",
+  "schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+  "status": "contract_only_not_implemented",
+  "tools": [
+    {
+      "name": "parse_report",
+      "method": "POST",
+      "path": "/api/tasks/{task_id}/parse",
+      "input_schema": "schema.json#/$defs/parse_report_input",
+      "output_schema": "schema.json#/$defs/parse_report_output",
+      "mutates_revision": true,
+      "requires_idempotency_key": true,
+      "success_http_status": 200
+    },
+    {
+      "name": "search_evidence",
+      "method": "POST",
+      "path": "/api/tasks/{task_id}/search",
+      "input_schema": "schema.json#/$defs/search_evidence_input",
+      "output_schema": "schema.json#/$defs/search_evidence_output",
+      "mutates_revision": false,
+      "requires_idempotency_key": false,
+      "success_http_status": 200
+    },
+    {
+      "name": "get_rulebook",
+      "method": "GET",
+      "path": "/api/tasks/{task_id}/rulebook",
+      "input_schema": "schema.json#/$defs/get_rulebook_input",
+      "output_schema": "schema.json#/$defs/get_rulebook_output",
+      "mutates_revision": false,
+      "requires_idempotency_key": false,
+      "success_http_status": 200
+    },
+    {
+      "name": "extract_metrics",
+      "method": "POST",
+      "path": "/api/tasks/{task_id}/extract",
+      "input_schema": "schema.json#/$defs/extract_metrics_input",
+      "output_schema": "schema.json#/$defs/extract_metrics_output",
+      "mutates_revision": true,
+      "requires_idempotency_key": true,
+      "success_http_status": 200
+    },
+    {
+      "name": "validate_metrics",
+      "method": "POST",
+      "path": "/api/tasks/{task_id}/validate",
+      "input_schema": "schema.json#/$defs/validate_metrics_input",
+      "output_schema": "schema.json#/$defs/validate_metrics_output",
+      "mutates_revision": false,
+      "requires_idempotency_key": false,
+      "success_http_status": 200
+    },
+    {
+      "name": "compare_years",
+      "method": "POST",
+      "path": "/api/tasks/{task_id}/compare",
+      "input_schema": "schema.json#/$defs/compare_years_input",
+      "output_schema": "schema.json#/$defs/compare_years_output",
+      "mutates_revision": true,
+      "requires_idempotency_key": true,
+      "success_http_status": 200
+    },
+    {
+      "name": "save_check_proposals",
+      "method": "POST",
+      "path": "/api/tasks/{task_id}/checks",
+      "input_schema": "schema.json#/$defs/save_check_proposals_input",
+      "output_schema": "schema.json#/$defs/save_check_proposals_output",
+      "mutates_revision": true,
+      "requires_idempotency_key": true,
+      "success_http_status": 200
+    },
+    {
+      "name": "calculate_score",
+      "method": "GET",
+      "path": "/api/tasks/{task_id}/score",
+      "input_schema": "schema.json#/$defs/calculate_score_input",
+      "output_schema": "schema.json#/$defs/calculate_score_output",
+      "mutates_revision": false,
+      "requires_idempotency_key": false,
+      "success_http_status": 200
+    },
+    {
+      "name": "get_task_results",
+      "method": "GET",
+      "path": "/api/tasks/{task_id}/results",
+      "input_schema": "schema.json#/$defs/get_task_results_input",
+      "output_schema": "schema.json#/$defs/get_task_results_output",
+      "mutates_revision": false,
+      "requires_idempotency_key": false,
+      "success_http_status": 200
+    },
+    {
+      "name": "export_analysis",
+      "method": "POST",
+      "path": "/api/tasks/{task_id}/exports",
+      "input_schema": "schema.json#/$defs/export_analysis_input",
+      "output_schema": "schema.json#/$defs/export_analysis_output",
+      "mutates_revision": false,
+      "requires_idempotency_key": true,
+      "success_http_status": 200
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+# Secrets and local config
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+apikey.ini
+# Local data, private submissions, large documents
+/data/
+/队友筛选/
+/ESG论文/
+*.pdf
+*.zip
+*.docx
+*.pptx
+*.xlsx
+*.sqlite
+*.sqlite3
+*.db
+*.log
+# Dependencies and build artifacts
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+node_modules/
+dist/
+build/
+coverage/
+.DS_Store
+.idea/
+.vscode/

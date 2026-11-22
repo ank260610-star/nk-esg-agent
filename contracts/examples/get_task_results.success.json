@@ -1,0 +1,128 @@
+{
+  "ok": true,
+  "data": {
+    "task": {
+      "task_id": "mock_task_001",
+      "company_id": "mock_company_001",
+      "report_ids": [
+        "mock_report_001"
+      ],
+      "selected_years": [
+        2023,
+        2024
+      ],
+      "rule_version": "disclosure-v0.1",
+      "stage": "metrics",
+      "revision": 7,
+      "created_at": "2026-11-19T00:00:00Z",
+      "updated_at": "2026-11-19T00:00:00Z",
+      "error": null
+    },
+    "reports": [
+      {
+        "report_id": "mock_report_001",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "company_id": "mock_company_001",
+        "company_name": "模拟公司",
+        "report_year": 2024,
+        "published_date": null,
+        "source_url": null,
+        "kind": "sustainability",
+        "media_type": "application/pdf",
+        "page_count": 1,
+        "parser_version": "mock-parser-0",
+        "status": "parsed",
+        "issues": []
+      }
+    ],
+    "metrics": [
+      {
+        "report_id": "mock_report_001",
+        "metric_id": "E04",
+        "metric_year": 2023,
+        "raw_value": "80.00",
+        "value": "80.00",
+        "raw_unit": "MWh",
+        "canonical_unit": "MWh",
+        "conversion_rule": null,
+        "denominator": null,
+        "boundary_text": "模拟公司运营场所；统计范围待人工复核",
+        "boundary_key": null,
+        "method_text": "模拟数据，不代表已核实方法",
+        "scope3_categories": [],
+        "evidence_ids": [
+          "mock_evidence_001"
+        ],
+        "status": "extracted",
+        "origin": "reported",
+        "supersedes_id": null,
+        "derivation": null,
+        "record_id": "mock_metric_2023",
+        "task_id": "mock_task_001",
+        "review_state": "unreviewed",
+        "revision": 7,
+        "is_current": true,
+        "extraction_note": ""
+      },
+      {
+        "report_id": "mock_report_001",
+        "metric_id": "E04",
+        "metric_year": 2024,
+        "raw_value": "100.00",
+        "value": "100.00",
+        "raw_unit": "MWh",
+        "canonical_unit": "MWh",
+        "conversion_rule": null,
+        "denominator": null,
+        "boundary_text": "模拟公司运营场所；统计范围待人工复核",
+        "boundary_key": null,
+        "method_text": "模拟数据，不代表已核实方法",
+        "scope3_categories": [],
+        "evidence_ids": [
+          "mock_evidence_001"
+        ],
+        "status": "extracted",
+        "origin": "reported",
+        "supersedes_id": null,
+        "derivation": null,
+        "record_id": "mock_metric_2024",
+        "task_id": "mock_task_001",
+        "review_state": "unreviewed",
+        "revision": 7,
+        "is_current": true,
+        "extraction_note": ""
+      }
+    ],
+    "checks": [],
+    "comparisons": [],
+    "score": null,
+    "issues": [],
+    "review_url": "/tasks/mock_task_001/review",
+    "extraction_runs": [
+      {
+        "run_id": "mock_extract_run_001",
+        "owner": "backend",
+        "extractor_version": "mock-extractor-0",
+        "model_id": "mock-model",
+        "prompt_version": "mock-extraction-prompt-0",
+        "metric_ids": [
+          "E04"
+        ],
+        "years": [
+          2024
+        ],
+        "usage": {
+          "model_calls": 1,
+          "input_tokens": 100,
+          "output_tokens": 50
+        },
+        "record_ids": [
+          "mock_metric_2024"
+        ]
+      }
+    ]
+  },
+  "error": null,
+  "task_id": "mock_task_001",
+  "revision": 7
+}

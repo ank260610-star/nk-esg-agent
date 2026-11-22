@@ -1,0 +1,11 @@
+{
+  "ok": false,
+  "data": null,
+  "error": {
+    "code": "NO_TEXT_LAYER",
+    "message": "模拟错误：NO_TEXT_LAYER，请按契约处理。",
+    "retryable": false
+  },
+  "task_id": "mock_task_001",
+  "revision": 7
+}

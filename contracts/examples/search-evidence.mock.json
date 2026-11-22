@@ -1,0 +1,25 @@
+{
+  "ok": true,
+  "data": {
+    "evidence": [
+      {
+        "evidence_id": "mock_evidence_001",
+        "report_id": "mock_report_001",
+        "pdf_page": 1,
+        "printed_page": null,
+        "kind": "text",
+        "text": "模拟报告：2023年能源总耗量80.00 MWh，2024年100.00 MWh。仅供接口调试，不代表任何企业。",
+        "bbox": null,
+        "table_id": null,
+        "row_label": null,
+        "column_year": 2024,
+        "linked_evidence_ids": [],
+        "viewer_url": "/api/reports/mock_report_001/pdf#page=1"
+      }
+    ],
+    "issues": []
+  },
+  "error": null,
+  "task_id": "mock_task_001",
+  "revision": 7
+}

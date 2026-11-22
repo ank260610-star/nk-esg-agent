@@ -1,0 +1,21 @@
+{
+  "ok": true,
+  "data": {
+    "status": "needs_review",
+    "checked_record_ids": [
+      "mock_metric_2024"
+    ],
+    "issues": [
+      {
+        "code": "BOUNDARY_UNCONFIRMED",
+        "message": "需核查跨年边界，非数值错误。",
+        "report_id": "mock_report_001",
+        "pdf_page": 1,
+        "record_id": "mock_metric_2024"
+      }
+    ]
+  },
+  "error": null,
+  "task_id": "mock_task_001",
+  "revision": 7
+}

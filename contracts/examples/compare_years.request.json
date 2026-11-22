@@ -1,0 +1,6 @@
+{
+  "task_id": "mock_task_001",
+  "expected_revision": 6,
+  "older_record_id": "mock_metric_2023",
+  "newer_record_id": "mock_metric_2024"
+}

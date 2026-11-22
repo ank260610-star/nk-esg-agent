@@ -1,0 +1,20 @@
+{
+  "ok": true,
+  "data": {
+    "status": "parsed",
+    "reports": [
+      {
+        "report_id": "mock_report_001",
+        "status": "parsed",
+        "page_count": 1,
+        "parsed_pages": 1,
+        "evidence_count": 1,
+        "issues": []
+      }
+    ],
+    "issues": []
+  },
+  "error": null,
+  "task_id": "mock_task_001",
+  "revision": 7
+}

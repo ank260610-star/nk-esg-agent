@@ -1,0 +1,18 @@
+{
+  "task_id": "mock_task_001",
+  "expected_revision": 6,
+  "checks": [
+    {
+      "check_id": "C01",
+      "rule_version": "disclosure-v0.1",
+      "status": "unknown",
+      "evidence_ids": [],
+      "reason": "模拟资料尚未检索碳排放量与强度。",
+      "missing_information": [
+        "E01与E02证据"
+      ],
+      "suggestion": "补充检索后再判断。",
+      "target_key": null
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "ok": true,
+  "data": {
+    "artifacts": [
+      {
+        "artifact_id": "mock_artifact_md",
+        "format": "markdown",
+        "media_type": "text/markdown",
+        "filename": "mock-analysis.md",
+        "download_url": "/api/artifacts/mock_artifact_md",
+        "revision": 7,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "artifact_id": "mock_artifact_csv",
+        "format": "csv",
+        "media_type": "text/csv",
+        "filename": "mock-analysis.csv",
+        "download_url": "/api/artifacts/mock_artifact_csv",
+        "revision": 7,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "artifact_id": "mock_artifact_json",
+        "format": "json",
+        "media_type": "application/json",
+        "filename": "mock-analysis.json",
+        "download_url": "/api/artifacts/mock_artifact_json",
+        "revision": 7,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "rule_version": "disclosure-v0.1",
+    "revision": 7
+  },
+  "error": null,
+  "task_id": "mock_task_001",
+  "revision": 7
+}

@@ -1,0 +1,11 @@
+{
+  "ok": false,
+  "data": null,
+  "error": {
+    "code": "MODEL_UNAVAILABLE",
+    "message": "模拟提取阶段的模型暂不可用，未提交指标。",
+    "retryable": true
+  },
+  "task_id": "mock_task_001",
+  "revision": 7
+}

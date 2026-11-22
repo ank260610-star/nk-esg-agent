@@ -1,0 +1,6 @@
+{
+  "task_id": "mock_task_001",
+  "query": "能源总耗量",
+  "metric_id": "E04",
+  "limit": 10
+}

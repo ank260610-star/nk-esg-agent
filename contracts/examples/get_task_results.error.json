@@ -1,0 +1,11 @@
+{
+  "ok": false,
+  "data": null,
+  "error": {
+    "code": "FORBIDDEN",
+    "message": "模拟错误：FORBIDDEN，请按契约处理。",
+    "retryable": false
+  },
+  "task_id": null,
+  "revision": null
+}

@@ -1,0 +1,11 @@
+{
+  "ok": false,
+  "data": null,
+  "error": {
+    "code": "FOREIGN_EVIDENCE",
+    "message": "模拟错误：FOREIGN_EVIDENCE，请按契约处理。",
+    "retryable": false
+  },
+  "task_id": "mock_task_001",
+  "revision": 7
+}

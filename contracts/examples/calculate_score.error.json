@@ -1,0 +1,11 @@
+{
+  "ok": false,
+  "data": null,
+  "error": {
+    "code": "RULE_VERSION_MISMATCH",
+    "message": "模拟错误：RULE_VERSION_MISMATCH，请按契约处理。",
+    "retryable": false
+  },
+  "task_id": "mock_task_001",
+  "revision": 7
+}
