@@ -14,6 +14,7 @@ from .config import Settings
 from .repository import InMemoryTaskStore
 from .run_jobs import AgentRunStore
 from .retrieval import EvidenceStore, search_evidence as do_search
+from .extraction import ExtractionDeps, extract_metrics as do_extract, RevisionChanged
 
 
 def error_envelope(code: str, message: str, retryable: bool = False) -> dict:
@@ -34,6 +35,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.runs = AgentRunStore()
     # Task 2 证据仓储：默认空，由 register_report/parse 流程填充
     app.state.evidence = EvidenceStore([])
+    # Task 3 提取依赖：默认拒绝空候选（模型替身须由后端显式注入）
+    app.state.extraction_deps = ExtractionDeps(
+        model_fn=lambda ctx: [], extractor_version="backend-default",
+        model_id=None, prompt_version=None,
+    )
 
     @app.get("/health")
     def health():
@@ -111,6 +117,45 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "error": None,
                 "task_id": bound,
                 "revision": rec.revision if rec else 0,
+            }
+        if tool == "extract_metrics":
+            # 输入以服务端任务为准：task_id 来自令牌，revision 来自任务仓储
+            metric_ids = args.get("metric_ids")
+            years = args.get("years")
+            expected_revision = args.get("expected_revision")
+            if (not isinstance(metric_ids, list) or not metric_ids
+                    or not isinstance(years, list) or not years
+                    or not isinstance(expected_revision, int)):
+                return JSONResponse(status_code=400,
+                                    content=error_envelope("INVALID_INPUT",
+                                                           "metric_ids/years/expected_revision required"))
+            rec = store.get(bound)
+            current_revision = rec.revision if rec else 0
+            # 证据归属集合来自服务端证据仓储（模型不能自选）
+            evidence_store: EvidenceStore = app.state.evidence
+            allowed_evidence_ids = set(evidence_store.by_id.keys())
+            deps: ExtractionDeps = app.state.extraction_deps
+            try:
+                result = do_extract(
+                    task_id=bound,
+                    expected_revision=expected_revision,
+                    current_revision=current_revision,
+                    metric_ids=metric_ids, years=years,
+                    allowed_evidence_ids=allowed_evidence_ids,
+                    deps=deps,
+                )
+            except RevisionChanged:
+                return JSONResponse(status_code=409,
+                                    content={**error_envelope("REVISION_CONFLICT",
+                                                              "expected_revision does not match current task revision",
+                                                              retryable=True),
+                                             "task_id": bound, "revision": current_revision})
+            return {
+                "ok": True,
+                "data": result.to_dict(),
+                "error": None,
+                "task_id": bound,
+                "revision": current_revision,
             }
         return JSONResponse(status_code=403,
                             content=error_envelope("FORBIDDEN", "tool not in whitelist"))

@@ -60,3 +60,72 @@ class TestSearchToolIntegration:
                    json={"tool": "search_evidence",
                          "arguments": {"query": "温室气体", "task_id": "other"}})
         assert r.status_code == 400
+
+
+class TestExtractToolIntegration:
+    def test_extract_metrics_reachable_with_stub_model(self):
+        """extract_metrics 通过 /agent/tool 可达；用后端注入的替身模型。"""
+        from esg_app.extraction import ExtractionDeps
+
+        settings = Settings()
+        app = create_app(settings)
+        store: InMemoryTaskStore = app.state.tasks
+        store.register_task("task_ext", 3, {})
+        store.issue_agent_token("task_ext", "tok_ext")
+        app.state.evidence = EvidenceStore([
+            ev("e_e01", "范围1温室气体排放量 12,341,455.00"),
+        ])
+
+        def stub_model(ctx):
+            return [{
+                "report_id": "byd_report", "metric_id": "E01", "metric_year": 2024,
+                "raw_value": "12,341,455.00", "value": "12341455",
+                "raw_unit": "吨二氧化碳当量", "canonical_unit": "吨二氧化碳当量",
+                "conversion_rule": None, "denominator": None,
+                "boundary_text": "", "boundary_key": None, "method_text": "",
+                "scope3_categories": [], "evidence_ids": ["e_e01"],
+                "status": "extracted", "origin": "reported", "supersedes_id": None,
+                "derivation": None, "extraction_note": "",
+            }]
+
+        app.state.extraction_deps = ExtractionDeps(
+            model_fn=stub_model, extractor_version="test-v1",
+            model_id="stub", prompt_version="metric-extraction-v0.2.0",
+        )
+        c = TestClient(app)
+        r = c.post("/agent/tool",
+                   headers={"x-agent-token": "tok_ext"},
+                   json={"tool": "extract_metrics",
+                         "arguments": {"metric_ids": ["E01"], "years": [2024],
+                                       "expected_revision": 3}})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["ok"] is True
+        assert body["task_id"] == "task_ext"
+        assert "records" in body["data"]
+        assert len(body["data"]["records"]) >= 1
+        # 服务端字段必须存在
+        rec = body["data"]["records"][0]
+        assert {"record_id", "task_id", "revision", "review_state"} <= set(rec)
+
+    def test_extract_rejects_wrong_revision(self):
+        """expected_revision 与服务端不符 → 拒绝。"""
+        from esg_app.extraction import ExtractionDeps
+
+        settings = Settings()
+        app = create_app(settings)
+        store: InMemoryTaskStore = app.state.tasks
+        store.register_task("task_ext2", 5, {})
+        store.issue_agent_token("task_ext2", "tok_ext2")
+        app.state.extraction_deps = ExtractionDeps(
+            model_fn=lambda ctx: [], extractor_version="test-v1",
+            model_id="stub", prompt_version="v1",
+        )
+        c = TestClient(app)
+        r = c.post("/agent/tool",
+                   headers={"x-agent-token": "tok_ext2"},
+                   json={"tool": "extract_metrics",
+                         "arguments": {"metric_ids": ["E01"], "years": [2024],
+                                       "expected_revision": 4}})  # 实际是 5
+        assert r.status_code == 409
+        assert r.json()["error"]["code"] == "REVISION_CONFLICT"

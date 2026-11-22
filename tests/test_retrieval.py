@@ -84,13 +84,20 @@ class TestSearchEvidence:
 
 class TestDictionaryFallback:
     def test_fallback_is_visible_in_issues(self, monkeypatch, tmp_path):
-        """回归: 词典加载失败必须暴露 DICTIONARY_FALLBACK，不静默降级。"""
+        """回归: 词典加载失败必须暴露 DICTIONARY_FALLBACK，不静默降级。
+
+        用 context 限定 patch 作用域；退出后路径已恢复，finally 再 reload 才是
+        真正恢复真实词典。否则会在 monkeypatch 仍生效时 reload，把全局词典
+        永久留在 fallback 状态，污染后续测试的 Top-5 命中。
+        """
         import esg_app.retrieval as ret
-        # 指向不存在的词典 → 触发 fallback
-        monkeypatch.setattr(ret, "_DICT_PATH", tmp_path / "missing.json")
-        ret.reload_dictionary()
-        store = EvidenceStore([ev("e1", "温室气体排放量 100", 127)])
-        res = search_evidence(store, "温室气体排放量", limit=3)
-        codes = [i["code"] for i in res["issues"]]
-        assert "DICTIONARY_FALLBACK" in codes
-        ret.reload_dictionary()  # 恢复
+        try:
+            with monkeypatch.context() as m:
+                m.setattr(ret, "_DICT_PATH", tmp_path / "missing.json")
+                ret.reload_dictionary()
+                store = EvidenceStore([ev("e1", "温室气体排放量 100", 127)])
+                res = search_evidence(store, "温室气体排放量", limit=3)
+                codes = [i["code"] for i in res["issues"]]
+                assert "DICTIONARY_FALLBACK" in codes
+        finally:
+            ret.reload_dictionary()  # 此时 _DICT_PATH 已恢复为真实路径
