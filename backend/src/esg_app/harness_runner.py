@@ -32,14 +32,20 @@ def build_sdk_kwargs(settings: Settings) -> dict:
     home, workspace = ensure_isolated_paths(settings)
     if not settings.model:
         raise ValueError("model must be locked and recorded in docs/runtime-lock.md")
+    # 参数名对齐官方 deepseek-harness-sdk 0.2.2rc2 示例：
+    # - profile="sdk" 完整 profile 才含工具系统；sdk-minimal 无工具注册能力。
+    # - DSH_PERMISSION_MODE 通过 env 注入；read-only 是标准 sdk profile 的命名预设。
+    # - 完整 sdk profile 才有权限服务，支持 read-only 预设。
     return {
         "dsh_home": home,
         "cwd": workspace,
+        "profile": "sdk",
         "provider": "deepseek-official",
         "model": settings.model,
         "reasoning_effort": "max",
         "max_tokens": 49_152,
         "initialize_timeout_seconds": 30,
+        "env": {"DSH_PERMISSION_MODE": "read-only"},
     }
 
 

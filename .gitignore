@@ -19,6 +19,7 @@ apikey.ini
 *.db
 *.log
 # Dependencies and build artifacts
+.wheels/
 .venv/
 venv/
 __pycache__/

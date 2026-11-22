@@ -5,10 +5,18 @@ export class BusinessClient {
     private readonly token: string = ''
   ) {}
 
+  /**
+   * 统一走 /agent/tool 入口：task_id 由服务端按 agent 令牌解析，
+   * 模型不可自行填写（TOOL_SPEC §get_task_results / handoff §3.4）。
+   */
   async getTaskResults(): Promise<unknown> {
-    // task_id 由服务端令牌上下文决定，模型不可自行填写（TOOL_SPEC §get_task_results）
-    const response = await fetch(`${this.baseUrl}/api/tasks/current/results`, {
-      headers: { 'X-Agent-Token': this.token },
+    const response = await fetch(`${this.baseUrl}/agent/tool`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Agent-Token': this.token
+      },
+      body: JSON.stringify({ tool: 'get_task_results', arguments: {} }),
       signal: AbortSignal.timeout(10_000)
     })
     if (!response.ok) {
