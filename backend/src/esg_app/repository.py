@@ -36,3 +36,20 @@ class InMemoryTaskStore:
     def permission_for(self, task_id: str) -> str:
         rec = self._tasks.get(task_id)
         return rec.permission if rec else "none"
+
+
+class RecordStore:
+    """MetricRecord 内存仓储（Task 4 比较的来源）。
+
+    真实实现应为 SQLite 事务 + revision 版本；此处仅支持按 record_id 取回，
+    并记录所属 task_id 以做归属隔离。
+    """
+    def __init__(self) -> None:
+        self._records: dict[str, dict] = {}
+
+    def add(self, record_id: str, record: dict) -> None:
+        self._records[record_id] = record
+
+    def get(self, record_id: str) -> dict | None:
+        return self._records.get(record_id)
+

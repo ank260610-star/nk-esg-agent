@@ -129,3 +129,56 @@ class TestExtractToolIntegration:
                                        "expected_revision": 4}})  # 实际是 5
         assert r.status_code == 409
         assert r.json()["error"]["code"] == "REVISION_CONFLICT"
+
+
+class TestCompareToolIntegration:
+    def _record(self, rid, year, value):
+        return {
+            "report_id": "byd_r1", "metric_id": "E04", "metric_year": year,
+            "raw_value": value, "value": value, "raw_unit": "MWh",
+            "canonical_unit": "MWh", "conversion_rule": None, "denominator": None,
+            "boundary_text": "", "boundary_key": "scope_cn",
+            "method_text": "已核对口径", "scope3_categories": [],
+            "evidence_ids": [], "status": "extracted", "origin": "reported",
+            "supersedes_id": None, "derivation": None, "record_id": rid,
+            "task_id": "task_cmp", "review_state": "confirmed", "revision": 3,
+            "is_current": True, "extraction_note": "",
+        }
+
+    def test_compare_years_reachable_and_computes_yoy(self):
+        settings = Settings()
+        app = create_app(settings)
+        store: InMemoryTaskStore = app.state.tasks
+        store.register_task("task_cmp", 3, {})
+        store.issue_agent_token("task_cmp", "tok_cmp")
+        app.state.records.add("r_old", self._record("r_old", 2023, "16592592.44"))
+        app.state.records.add("r_new", self._record("r_new", 2024, "23552569.28"))
+        c = TestClient(app)
+        r = c.post("/agent/tool", headers={"x-agent-token": "tok_cmp"},
+                   json={"tool": "compare_years",
+                         "arguments": {"older_record_id": "r_old",
+                                       "newer_record_id": "r_new",
+                                       "expected_revision": 3}})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["ok"] is True
+        assert body["data"]["status"] == "comparable"
+        assert body["data"]["percent_change"] == "41.95"
+
+    def test_compare_with_foreign_record_rejected(self):
+        """跨任务 record_id → 402/403 拒绝，不泄露。"""
+        settings = Settings()
+        app = create_app(settings)
+        store: InMemoryTaskStore = app.state.tasks
+        store.register_task("task_cmp2", 3, {})
+        store.issue_agent_token("task_cmp2", "tok_cmp2")
+        # r_old 属于别的 task
+        rec = self._record("r_foreign", 2023, "100"); rec["task_id"] = "other_task"
+        app.state.records.add("r_foreign", rec)
+        c = TestClient(app)
+        r = c.post("/agent/tool", headers={"x-agent-token": "tok_cmp2"},
+                   json={"tool": "compare_years",
+                         "arguments": {"older_record_id": "r_foreign",
+                                       "newer_record_id": "r_missing",
+                                       "expected_revision": 3}})
+        assert r.status_code in (403, 404)

@@ -11,10 +11,11 @@ from fastapi import FastAPI, Header, Request
 from fastapi.responses import JSONResponse
 
 from .config import Settings
-from .repository import InMemoryTaskStore
+from .repository import InMemoryTaskStore, RecordStore
 from .run_jobs import AgentRunStore
 from .retrieval import EvidenceStore, search_evidence as do_search
 from .extraction import ExtractionDeps, extract_metrics as do_extract, RevisionChanged
+from .comparison import compare_records as do_compare
 
 
 def error_envelope(code: str, message: str, retryable: bool = False) -> dict:
@@ -33,6 +34,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.tasks = InMemoryTaskStore()
     app.state.runs = AgentRunStore()
+    # Task 4 记录仓储：extract 产出按 record_id 存，供 compare 取用
+    app.state.records = RecordStore()
     # Task 2 证据仓储：默认空，由 register_report/parse 流程填充
     app.state.evidence = EvidenceStore([])
     # Task 3 提取依赖：默认拒绝空候选（模型替身须由后端显式注入）
@@ -150,9 +153,44 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                                               "expected_revision does not match current task revision",
                                                               retryable=True),
                                              "task_id": bound, "revision": current_revision})
+            # 提取产物按 record_id 登记到服务端仓储，供 compare_years 取用
+            record_store: RecordStore = app.state.records
+            for r in result.records:
+                record_store.add(r["record_id"], r)
             return {
                 "ok": True,
                 "data": result.to_dict(),
+                "error": None,
+                "task_id": bound,
+                "revision": current_revision,
+            }
+        if tool == "compare_years":
+            older_id = args.get("older_record_id")
+            newer_id = args.get("newer_record_id")
+            expected_revision = args.get("expected_revision")
+            if (not isinstance(older_id, str) or not isinstance(newer_id, str)
+                    or not isinstance(expected_revision, int)):
+                return JSONResponse(status_code=400,
+                                    content=error_envelope("INVALID_INPUT",
+                                                           "older_record_id/newer_record_id/expected_revision required"))
+            rec = store.get(bound)
+            current_revision = rec.revision if rec else 0
+            if expected_revision != current_revision:
+                return JSONResponse(status_code=409,
+                                    content={**error_envelope("REVISION_CONFLICT",
+                                                              "revision mismatch", retryable=True),
+                                             "task_id": bound, "revision": current_revision})
+            record_store: RecordStore = app.state.records
+            older, newer = record_store.get(older_id), record_store.get(newer_id)
+            # 归属隔离：两条记录都必须存在且属于当前令牌绑定的任务
+            if (older is None or newer is None or
+                    older.get("task_id") != bound or newer.get("task_id") != bound):
+                return JSONResponse(status_code=404,
+                                    content=error_envelope("NOT_FOUND", "record not found in task scope"))
+            comparison = do_compare(older, newer)
+            return {
+                "ok": True,
+                "data": comparison,
                 "error": None,
                 "task_id": bound,
                 "revision": current_revision,

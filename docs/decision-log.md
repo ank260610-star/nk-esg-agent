@@ -159,3 +159,34 @@
 
 **仍未完成（不在本成员边界）**：`parse_report` 服务端契约（revision 递增 + 幂等键，
 属业务仓储）；网页打开 PDF 登记证据 ID（前端 Task 6/7）；复杂表格视觉解析（P2 范围外）。
+
+---
+
+## 闸门 C 前置（Task 4：可比性、跨年计算与情景边界）— 通过
+
+记录时间：2026-11-22。
+
+新增 `comparison.py`（Decimal 精确计算）：
+- `parse_decimal`：千分位/尾随零保留；占位符 `/ — 未披露` 返回 None 绝不转 0。
+- `compare_records`：比对企业/指标/递增年度/可换算单位/强度分母/边界/方法/复核状态；
+  全过才 comparable 并算同比。硬阻断项（单位/分母不符）→ not_comparable；
+  边界/方法/复核未确认 → needs_review（不输出同比）；基期 0 → undefined；
+  缺失/冲突 → not_comparable。首次自动候选（unreviewed）默认 needs_review。
+- `apply_scenario`：白名单确定性公式（WITHHOLD_CERTIFICATE 扣绿证 /
+  UNIT_CONVERSION），两年必须用同一变换，缺一年 → ASYMMETRIC_TRANSFORM 拒绝；
+  情景值与原披露值隔离，不覆盖、不自动进评分。
+
+服务端接入：`compare_years` 加入 `/agent/tool` 白名单；新增 `RecordStore`，
+extract 产物按 record_id 登记；compare 按 ID 取记录并做 task 归属隔离（跨任务 404）。
+
+真机数值验证（与 handoff §6 逐项吻合）：
+- 正常同比：E01 -18.15%、E02 -36.55%、E04 +41.95%、E05 +27.72%、E06 +150.68%。
+- 绿证对称调整：两年都扣 16,084,592.44 → 21,314,583.28，同比 +32.52%；
+  只扣 2024 → rejected / ASYMMETRIC_TRANSFORM（拒绝得出 -0.44% 的错误序列）。
+- 算术边界：delta 用 Decimal，+41.95% 对应 delta=6,959,976.84。
+
+测试：新增 `tests/test_comparison.py` 16 项 + 集成 2 项；全量 **94 passed**。
+修正一处测试期望值算术错误（delta 6961976.84→6959976.84）与一处夹具问题
+（method_text 默认空触发 METHOD_UNCONFIRMED）。
+
+**仍未完成**：Task 5 评分与人工复核、Task 6/7 页面与完整演示链。
