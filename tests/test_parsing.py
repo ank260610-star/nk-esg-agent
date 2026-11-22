@@ -17,6 +17,7 @@ from esg_app.parsing import (
     reconstruct_table,
     tables_equivalent,
     make_evidence_page_ref,
+    detect_value_conflicts,
 )
 
 
@@ -138,3 +139,29 @@ class TestPageRef:
         ref = make_evidence_page_ref(page_index_0based=0, printed_page=None)
         assert ref["pdf_page"] == 1
         assert ref["printed_page"] is None
+
+
+class TestValueConflicts:
+    def test_same_metric_two_values_flagged(self):
+        """同指标同年多处出现 → 标记冲突候选，不静默拆散。"""
+        grid = reconstruct_table([
+            W("指标", 0, 10), W("2024年", 300, 10),
+            W("温室气体排放密度", 0, 26), W("0.2049", 300, 26),
+            W("温室气体排放密度", 0, 42), W("0.2088", 300, 42),
+        ])
+        conflicts = detect_value_conflicts(grid)
+        assert len(conflicts) >= 1
+        c = conflicts[0]
+        assert set(c["values"]) == {"0.2049", "0.2088"}
+        assert c["code"] == "CROSS_REF_CONFLICT"
+
+    def test_same_metric_same_value_flagged_as_agree(self):
+        """同指标同年多处同值 → 标记互证。"""
+        grid = reconstruct_table([
+            W("指标", 0, 10), W("2024年", 300, 10),
+            W("温室气体排放密度", 0, 26), W("0.2049", 300, 26),
+            W("温室气体排放密度", 0, 42), W("0.2049", 300, 42),
+        ])
+        conflicts = detect_value_conflicts(grid)
+        assert len(conflicts) >= 1
+        assert conflicts[0]["code"] == "CROSS_REF_AGREE"

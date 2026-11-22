@@ -15,21 +15,31 @@ from typing import Optional
 _DICT_PATH = Path(__file__).resolve().parent / "rules" / "metric-dictionary.json"
 
 
-def _load_dictionary() -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+_FALLBACK_ALIASES = {"E01": ["温室气体排放量"], "E03": ["范围3温室气体排放"],
+                     "E04": ["能源总耗量"], "E05": ["总取水量"], "E06": ["总耗水量"]}
+_FALLBACK_NOTES = {"E03": ["范围3温室气体"]}
+
+
+def _load_dictionary() -> tuple[dict[str, list[str]], dict[str, list[str]], bool]:
+    """返回 (aliases, notes, is_fallback)。降级必须可见，不静默。"""
     try:
         cfg = json.loads(_DICT_PATH.read_text(encoding="utf-8"))
         aliases = {k: v["aliases"] for k, v in cfg["metrics"].items()}
         notes = dict(cfg.get("footnote_links", {}))
-        return aliases, notes
-    except Exception:
-        # 配置缺失时退回最小内置默认（保证模块可用，不静默声称配置已加载）
-        return ({"E01": ["温室气体排放量"], "E03": ["范围3温室气体排放"],
-                 "E04": ["能源总耗量"], "E05": ["总取水量"], "E06": ["总耗水量"]},
-                {"E03": ["范围3温室气体"]})
+        return aliases, notes, False
+    except Exception as exc:
+        # 配置缺失/损坏：退回最小默认，但标记 is_fallback=True，由上层暴露 issue
+        return dict(_FALLBACK_ALIASES), dict(_FALLBACK_NOTES), True
 
 
-METRIC_ALIASES, FOOTNOTE_LINK_RULES = _load_dictionary()
+METRIC_ALIASES, FOOTNOTE_LINK_RULES, DICTIONARY_IS_FALLBACK = _load_dictionary()
 DICTIONARY_VERSION = "metric-dict-v0.1"
+
+
+def reload_dictionary() -> None:
+    """重新加载词典（测试/配置热更新用）。"""
+    global METRIC_ALIASES, FOOTNOTE_LINK_RULES, DICTIONARY_IS_FALLBACK
+    METRIC_ALIASES, FOOTNOTE_LINK_RULES, DICTIONARY_IS_FALLBACK = _load_dictionary()
 
 
 @dataclass
@@ -120,20 +130,29 @@ def search_evidence(store: EvidenceStore, query: str,
             scored.append((sc, e))
 
     scored.sort(key=lambda p: -p[0])
+    # 正文证据占 limit 名额；脚注额外附加，不参与 limit 截断
     top = [e for _, e in scored[:limit]]
 
-    # 脚注关联：若结果含目标指标证据，补上对应脚注
+    issues = []
+    if DICTIONARY_IS_FALLBACK:
+        issues.append({"code": "DICTIONARY_FALLBACK",
+                       "message": "metric dictionary failed to load; using minimal fallback aliases",
+                       "report_id": None, "pdf_page": None, "record_id": None})
+
+    # 脚注关联：若结果含目标指标证据，补上对应脚注（额外附加，不受 limit 限制）
     if metric_id:
         notes = FOOTNOTE_LINK_RULES.get(metric_id, [])
         if any(alias_recall(e.text, metric_id) for e in top if e.kind != "footnote"):
+            present = {x.evidence_id for x in top}
             for e in store.items:
                 if e.kind == "footnote" and any(_normalize(n) in _normalize(e.text) for n in notes):
-                    if e.evidence_id not in [x.evidence_id for x in top]:
+                    if e.evidence_id not in present:
                         top.append(e)
+                        present.add(e.evidence_id)
 
-    issues = []
     if not top:
         issues.append({"code": "NO_EVIDENCE", "message": "no evidence matched query",
                        "report_id": None, "pdf_page": None, "record_id": None})
 
-    return {"evidence": top[:limit], "issues": issues}
+    # 不再对 top 做 [:limit] 截断——脚注需要保留
+    return {"evidence": top, "issues": issues}

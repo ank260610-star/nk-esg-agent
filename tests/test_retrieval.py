@@ -69,3 +69,28 @@ class TestSearchEvidence:
         hit = next(e for e in res["evidence"] if e.evidence_id == "e_e04")
         assert hit.pdf_page == 125
         assert hit.printed_page == "124"
+
+    def test_footnote_survives_when_hits_equal_limit(self):
+        """回归 bug: 正文命中数=limit 时，脚注不得被 [:limit] 截断丢失。"""
+        items = [ev(f"e{i}", "范围3温室气体排放量 数据", 127) for i in range(5)]
+        items.append(ev("fn21",
+                        "范围3温室气体排放量包括员工差旅、员工通勤、与燃料和能源相关的活动",
+                        127, "footnote"))
+        store = EvidenceStore(items)
+        res = search_evidence(store, "范围3温室气体排放", metric_id="E03", limit=5)
+        ids = [e.evidence_id for e in res["evidence"]]
+        assert "fn21" in ids, "脚注21被limit截断"
+
+
+class TestDictionaryFallback:
+    def test_fallback_is_visible_in_issues(self, monkeypatch, tmp_path):
+        """回归: 词典加载失败必须暴露 DICTIONARY_FALLBACK，不静默降级。"""
+        import esg_app.retrieval as ret
+        # 指向不存在的词典 → 触发 fallback
+        monkeypatch.setattr(ret, "_DICT_PATH", tmp_path / "missing.json")
+        ret.reload_dictionary()
+        store = EvidenceStore([ev("e1", "温室气体排放量 100", 127)])
+        res = search_evidence(store, "温室气体排放量", limit=3)
+        codes = [i["code"] for i in res["issues"]]
+        assert "DICTIONARY_FALLBACK" in codes
+        ret.reload_dictionary()  # 恢复

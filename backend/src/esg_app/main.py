@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from .config import Settings
 from .repository import InMemoryTaskStore
 from .run_jobs import AgentRunStore
+from .retrieval import EvidenceStore, search_evidence as do_search
 
 
 def error_envelope(code: str, message: str, retryable: bool = False) -> dict:
@@ -31,6 +32,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.tasks = InMemoryTaskStore()
     app.state.runs = AgentRunStore()
+    # Task 2 证据仓储：默认空，由 register_report/parse 流程填充
+    app.state.evidence = EvidenceStore([])
 
     @app.get("/health")
     def health():
@@ -89,6 +92,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "error": None,
                 "task_id": bound,
                 "revision": rec.revision,
+            }
+        if tool == "search_evidence":
+            query = args.get("query")
+            if not isinstance(query, str) or not query.strip():
+                return JSONResponse(status_code=400,
+                                    content=error_envelope("INVALID_INPUT", "query required"))
+            limit = args.get("limit", 10)
+            metric_id = args.get("metric_id")
+            evidence_store: EvidenceStore = app.state.evidence
+            result = do_search(evidence_store, query,
+                               metric_id=metric_id, limit=limit)
+            rec = store.get(bound)
+            return {
+                "ok": True,
+                "data": {"evidence": [e.to_dict() for e in result["evidence"]],
+                         "issues": result["issues"]},
+                "error": None,
+                "task_id": bound,
+                "revision": rec.revision if rec else 0,
             }
         return JSONResponse(status_code=403,
                             content=error_envelope("FORBIDDEN", "tool not in whitelist"))

@@ -251,6 +251,35 @@ def tables_equivalent(a: TableGrid, b: TableGrid) -> bool:
     return units_a == units_b
 
 
+def detect_value_conflicts(grid: TableGrid) -> list[dict]:
+    """检测同指标同年多处取值 → 冲突候选或互证（不静默拆散）。
+
+    与用户提出的「两处取值都是信息」对齐：
+    - 同 label + 同 year 出现多个**不同**值 → CROSS_REF_CONFLICT（需人工/业务判）
+    - 同 label + 同 year 出现多个**相同**值 → CROSS_REF_AGREE（互证）
+    """
+    groups: dict[tuple[str, int], list[str]] = {}
+    for row in grid.rows:
+        if not row.label:
+            continue
+        for year, value in row.values.items():
+            groups.setdefault((row.label, year), []).append(value)
+
+    out: list[dict] = []
+    for (label, year), values in groups.items():
+        if len(values) < 2:
+            continue
+        distinct = sorted(set(values))
+        out.append({
+            "code": "CROSS_REF_CONFLICT" if len(distinct) > 1 else "CROSS_REF_AGREE",
+            "row_label": label,
+            "year": year,
+            "values": distinct,
+            "occurrences": len(values),
+        })
+    return out
+
+
 def make_evidence_page_ref(page_index_0based: int, printed_page: Optional[str]) -> dict:
     """把解析器 0 基页索引转成 1 基 PDF 物理页；印刷页另存不混用。"""
     return {
