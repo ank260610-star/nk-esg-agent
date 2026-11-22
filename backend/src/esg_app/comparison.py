@@ -204,8 +204,11 @@ def apply_scenario(records: list[dict], transform: ScenarioTransform) -> dict:
                 return {"status": "rejected", "reason_codes": ["INVALID_PARAM"],
                         "records": [], "comparison": None}
             scenario_value = base - cert
-        else:  # UNIT_CONVERSION：乘法因子
-            factor = parse_decimal(params.get("factor")) or Decimal("1")
+        else:  # UNIT_CONVERSION：乘法因子（0 是合法因子，不能用 or 兜底成 1）
+            factor = parse_decimal(params.get("factor"))
+            if factor is None:
+                return {"status": "rejected", "reason_codes": ["INVALID_PARAM"],
+                        "records": [], "comparison": None}
             scenario_value = base * factor
         sr = dict(r)
         sr["scenario_value"] = str(scenario_value)

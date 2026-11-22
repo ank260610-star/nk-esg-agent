@@ -81,6 +81,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         bound = store.task_for_agent_token(token)
         return task_id if bound == task_id else None
 
+    def task_evidence(task_id: str) -> list:
+        """只返回当前任务已登记报告范围内的证据，防止跨任务内容泄露。"""
+        rec = app.state.tasks.get(task_id)
+        if rec is None:
+            return []
+        allowed = set((rec.results or {}).get("report_ids") or [])
+        return [e for e in app.state.evidence.items if e.report_id in allowed]
+
     @app.get("/api/tasks/{task_id}/results")
     def get_task_results(task_id: str, x_agent_token: str | None = Header(default=None)):
         if authorized_task(task_id, x_agent_token) is None:
@@ -112,8 +120,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception:
             return JSONResponse(status_code=400,
                                 content=error_envelope("INVALID_INPUT", "invalid JSON"))
+        # 入口类型守门：模型/用户传来的顶层与参数都必须是对象，否则下游 .get 会 500
+        if not isinstance(payload, dict):
+            return JSONResponse(status_code=400,
+                                content=error_envelope("INVALID_INPUT", "payload must be an object"))
         tool = payload.get("tool")
         args = payload.get("arguments", {})
+        if not isinstance(args, dict):
+            return JSONResponse(status_code=400,
+                                content=error_envelope("INVALID_INPUT", "arguments must be an object"))
         if tool not in settings.allowed_agent_tools:
             return JSONResponse(status_code=403,
                                 content=error_envelope("FORBIDDEN", "tool not in whitelist"))
@@ -136,8 +151,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 return JSONResponse(status_code=400,
                                     content=error_envelope("INVALID_INPUT", "query required"))
             limit = args.get("limit", 10)
+            # bool 是 int 子类，必须排除；上限防止大结果集拖垮工具入口
+            if (not isinstance(limit, int) or isinstance(limit, bool)
+                    or limit < 1 or limit > 100):
+                return JSONResponse(status_code=400,
+                                    content=error_envelope("INVALID_INPUT",
+                                                           "limit must be an integer 1..100"))
             metric_id = args.get("metric_id")
-            evidence_store: EvidenceStore = app.state.evidence
+            if metric_id is not None and not isinstance(metric_id, str):
+                return JSONResponse(status_code=400,
+                                    content=error_envelope("INVALID_INPUT",
+                                                           "metric_id must be a string"))
+            # 检索只在令牌绑定任务的报告范围内进行
+            evidence_store: EvidenceStore = EvidenceStore(task_evidence(bound))
             result = do_search(evidence_store, query,
                                metric_id=metric_id, limit=limit)
             rec = store.get(bound)
@@ -162,9 +188,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                                            "metric_ids/years/expected_revision required"))
             rec = store.get(bound)
             current_revision = rec.revision if rec else 0
-            # 证据归属集合来自服务端证据仓储（模型不能自选）
-            evidence_store: EvidenceStore = app.state.evidence
-            allowed_evidence_ids = set(evidence_store.by_id.keys())
+            # 证据归属集合来自服务端、且只限本任务报告范围（模型不能自选）
+            allowed_evidence_ids = {e.evidence_id for e in task_evidence(bound)}
             deps: ExtractionDeps = app.state.extraction_deps
             try:
                 result = do_extract(
@@ -310,10 +335,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # 复核成功后旧导出标记过期（页面与下载仍可见，但不能当当前版本）
         artifacts: ArtifactStore = app.state.artifacts
         artifacts.invalidate_task(task_id)
-        # 同步复核后的检查项到服务端检查仓储（评分以服务端为准）
+        # 复核结果合并回全量检查仓储：只覆盖被复核的检查项，不得清空其他项
         confirmed = rstore._checks.get(task_id, {})
-        if confirmed:
-            app.state.checks[task_id] = list(confirmed.values())
+        merged = {c["check_id"]: c for c in app.state.checks.get(task_id, [])
+                  if isinstance(c, dict) and c.get("check_id")}
+        merged.update(confirmed)
+        app.state.checks[task_id] = list(merged.values())
+        # 复核改变了证据口径：本任务既有比较结果全部过期，须重算
+        for c in app.state.comparisons_by_task.get(task_id, []):
+            c["is_current"] = False
         return {"ok": True, "data": task, "error": None,
                 "task_id": task_id, "revision": task["revision"]}
 
@@ -338,8 +368,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         rec = store.get(task_id) if task_id else None
         if task_id and rec is None:
             return HTMLResponse("<h1>404 · 任务不存在</h1>", status_code=404)
-        evidence_store: EvidenceStore = app.state.evidence
-        evidence_by_id = {e.evidence_id: e for e in evidence_store.items}
+        evidence_by_id = {e.evidence_id: e for e in task_evidence(task_id)} if task_id else {}
         checks = app.state.checks.get(task_id, []) if task_id else []
         records = app.state.records.list_by_task(task_id) if task_id else []
         try:
@@ -373,8 +402,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return response
 
     @app.get("/api/reports/{report_id}/pdf")
-    def report_pdf(report_id: str):
+    def report_pdf(report_id: str, request: Request,
+                   x_agent_token: str | None = Header(default=None),
+                   x_user: str | None = Header(default=None)):
         """只服务已登记报告的 PDF 文件；不暴露任意路径。"""
+        denied = require_user_session(x_user, x_agent_token, request)
+        if denied:
+            return denied
         if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", report_id):
             return JSONResponse(status_code=404, content=error_envelope("NOT_FOUND", "report not found"))
         path = app.state.report_paths.get(report_id)
@@ -383,7 +417,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return FileResponse(str(path), media_type="application/pdf")
 
     @app.get("/api/artifacts/{artifact_id}")
-    def artifact_download(artifact_id: str):
+    def artifact_download(artifact_id: str, request: Request,
+                          x_agent_token: str | None = Header(default=None),
+                          x_user: str | None = Header(default=None)):
+        denied = require_user_session(x_user, x_agent_token, request)
+        if denied:
+            return denied
         artifact_store: ArtifactStore = app.state.artifacts
         meta = artifact_store.get_meta(artifact_id)
         if meta is None:
@@ -433,7 +472,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 score=do_score(app.state.checks.get(task_id, []), app.state.rulebook),
                 checks=app.state.checks.get(task_id, []),
                 comparisons=app.state.comparisons_by_task.get(task_id, []),
-                evidence=[e.to_dict() for e in app.state.evidence.items],
+                evidence=[e.to_dict() for e in task_evidence(task_id)],
                 rule_version=app.state.rulebook["rule_version"],
                 report_meta=[app.state.report_meta.get(rid, {"report_id": rid})
                              for rid in (rec.results or {}).get("report_ids", [])],

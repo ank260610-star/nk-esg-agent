@@ -17,7 +17,8 @@ from esg_app.retrieval import Evidence, EvidenceStore  # noqa: E402
 def build_client():
     app = create_app(Settings())
     store: InMemoryTaskStore = app.state.tasks
-    store.register_task("task_web", 7, {"records": [], "checks": []})
+    store.register_task("task_web", 7, {"records": [], "checks": [],
+                                        "report_ids": ["rpt_1"]})
     store.issue_agent_token("task_web", "tok_web")
     app.state.evidence = EvidenceStore([
         Evidence("ev1", "rpt_1", 127, "126", "table",
@@ -127,6 +128,9 @@ class TestReviewAndExport:
                      headers={"x-user": "reviewer"},
                      json={"expected_revision": 7})
         art = exp.json()["data"]["artifacts"][0]
+        # 匿名持有合法 URL 也不能下载；浏览器访问首页后靠 cookie 会话下载
+        assert c.get(art["download_url"]).status_code == 401
+        c.get("/")
         r = c.get(art["download_url"])
         assert r.status_code == 200
         assert r.headers["content-type"].startswith(art["media_type"].split(";")[0])
@@ -146,6 +150,8 @@ class TestReviewAndExport:
         pdf = tmp_path / "sample.pdf"
         pdf.write_bytes(b"%PDF-1.4\n% fake for route guard test\n")
         c.app.state.report_paths = {"rpt_1": pdf}
+        assert c.get("/api/reports/rpt_1/pdf").status_code == 401
+        c.get("/")  # 浏览器会话 cookie
         assert c.get("/api/reports/rpt_1/pdf").status_code == 200
         # 任意路径/未登记 ID 不能下载
         assert c.get("/api/reports/rpt_unknown/pdf").status_code == 404

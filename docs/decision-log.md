@@ -257,3 +257,30 @@ coverage=0.125、参考分75、区间[9.375,96.875]、final=null、label=insuffi
 
 **仍未完成**：Task 7 完整 Harness 编排与证据问答（`agent-runs` 目前只落 queued/failed 状态骨架，
 未接真实 SDK 会话，不宣称端到端可用）；`parse_report` 服务端契约（业务仓储范围）。
+
+---
+
+## 工程自检与修复（2026-11-22，用户「开工一轮修掉，修好再独立自检一轮」）
+
+方法：先用 10 个独立可执行脚本复现，只确认真实失败才改代码；修完再用另一份独立自检脚本（13 项）
+复验并主动扫同源问题。共确认并修复 **10 个 bug**，其中 2 个由 Task 6 新增代码引入。
+
+| 级别 | Bug | 修复 |
+|---|---|---|
+| P0 | `/agent/tool` 未校验 `payload`/`arguments` 类型，`limit="5"` 触发 TypeError → 500 | 入口对象类型守门；limit 必须 1..100 整数（排除 bool），metric_id 必须字符串 |
+| P0 | 复核成功后 `app.state.checks[t] = list(confirmed.values())` 清空其余 19 项检查 | 改为按 check_id 合并回全量检查仓储，只覆盖被复核项 |
+| P0 | 同 revision 重复导出文件名相同，旧下载链接内容被覆盖、sha 与内容不符 | 文件名携带唯一 artifact_id，旧产物内容与声明 sha 始终一致 |
+| P1 | 首页证据摘录取全库，任务 A 页面可见任务 B 原文 | `task_evidence()` 按任务 report_ids 过滤，页面与导出共用 |
+| P1 | `parse_decimal(...) or Decimal("1")` 把合法 factor=0 吞成 1 | 显式判 None，缺失因子整批拒绝 |
+| P1 | 复核后旧 comparison 仍标 `is_current=true` | 复核成功后本任务比较结果全部标过期 |
+| P1 | 导出 JSON 的 `evidence_index` 收录全库证据 ID | 改用 `task_evidence()` 过滤后导出 |
+| P2 | artifact 下载 / PDF 端点无会话校验 | 两个端点统一走 `require_user_session`（header 或首页 cookie） |
+| P1（二轮自检发现） | Agent `search_evidence` 可检索到其他任务证据 | 检索传入 `EvidenceStore(task_evidence(bound))` |
+| P1（二轮自检发现） | `extract_metrics` 白名单来自全库证据 ID，模型可引用他任务证据 | 白名单改由 `task_evidence(bound)` 生成；越权引用仍走 `EVIDENCE_FOREIGN` 整批拒绝 |
+
+**关键判断**：证据归属过滤必须统一在服务端一处完成，页面、导出、检索、提取白名单共享同一视图；
+只在展示层过滤会留下 Agent 工具通道的泄露。所有用户路由（复核/导出/运行/PDF/下载）均拒绝 Agent 令牌。
+
+测试：新增 `tests/test_security_regressions.py` 17 项；调整既有测试夹具补 `report_ids` 以符合真实任务结构。
+全量 pytest **170 passed + 30 subtests**，契约 16 项 OK；第二轮独立自检脚本 **13/13 PASS**。
+**仍未完成**不变：Task 7 真实 SDK 编排与证据问答；`parse_report` 服务端契约（业务仓储范围）。

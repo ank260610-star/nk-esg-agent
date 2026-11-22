@@ -61,13 +61,16 @@ class ArtifactStore:
         if not safe_name or safe_name in (".", ".."):
             raise ExportError("BAD_FILENAME")
         artifact_id = f"art_{uuid.uuid4().hex[:24]}"
-        path = self.root / safe_name
+        # 文件名携带唯一 ID：同 revision 重复导出不覆盖旧文件，sha256 始终对应本文件内容
+        stem, dot, ext = safe_name.rpartition(".")
+        unique_name = f"{stem}_{artifact_id}{dot}{ext}" if dot else f"{safe_name}_{artifact_id}"
+        path = self.root / unique_name
         path.write_bytes(content)
         meta = {
             "artifact_id": artifact_id,
             "format": fmt,
             "media_type": media_type,
-            "filename": safe_name,
+            "filename": unique_name,
             "download_url": f"/api/artifacts/{artifact_id}",
             "revision": revision,
             "sha256": hashlib.sha256(content).hexdigest(),

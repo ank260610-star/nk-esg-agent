@@ -22,7 +22,7 @@ def build_client(with_evidence=True):
     app = create_app(settings)
     # 注册一个 mock task + agent token（与闸门 A 同机制）
     store: InMemoryTaskStore = app.state.tasks
-    store.register_task("task_svc", 7, {})
+    store.register_task("task_svc", 7, {"report_ids": ["r1"]})
     store.issue_agent_token("task_svc", "tok_svc")
     if with_evidence:
         app.state.evidence = EvidenceStore([
@@ -70,7 +70,7 @@ class TestExtractToolIntegration:
         settings = Settings()
         app = create_app(settings)
         store: InMemoryTaskStore = app.state.tasks
-        store.register_task("task_ext", 3, {})
+        store.register_task("task_ext", 3, {"report_ids": ["r1"]})
         store.issue_agent_token("task_ext", "tok_ext")
         app.state.evidence = EvidenceStore([
             ev("e_e01", "范围1温室气体排放量 12,341,455.00"),
