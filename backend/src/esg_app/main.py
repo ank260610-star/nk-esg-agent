@@ -7,8 +7,14 @@
 """
 from __future__ import annotations
 
+import os
+import re
+from pathlib import Path
+
 from fastapi import FastAPI, Header, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
 from .config import Settings
 from .repository import InMemoryTaskStore, RecordStore
@@ -18,6 +24,8 @@ from .extraction import ExtractionDeps, extract_metrics as do_extract, RevisionC
 from .comparison import compare_records as do_compare
 from .scoring import load_rulebook, score_checks as do_score
 from .review import ReviewStore, ReviewCommand, apply_review as do_review, ReviewError
+from .exports import ArtifactStore, ExportError, build_export_bundle
+from .rules_registry import ALL_CHECK_IDS
 
 
 def error_envelope(code: str, message: str, retryable: bool = False) -> dict:
@@ -49,6 +57,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.rulebook = load_rulebook()
     app.state.checks: dict[str, list] = {}
     app.state.review_store = ReviewStore()
+    # Task 6 导出：产物目录由服务端生成，下载仅按 artifact_id 查表
+    # 项目根 data/ 已被 .gitignore 排除，不把产物写进源码树
+    app.state.artifacts = ArtifactStore(Path(__file__).resolve().parents[3] / "data" / "artifacts")
+    app.state.exports_by_task: dict[str, dict] = {}
+    # 已登记报告的真实文件路径只存在服务端映射，页面只得到 report_id
+    app.state.report_paths: dict[str, Path] = {}
+    app.state.report_meta: dict[str, dict] = {}
+    # 后台运行：真实的 SDK 宿主由 harness_runner 提供；缺密钥则标记 failed
+    app.state.agent_starter = None  # 由测试/运行器注入 (task_id, run_id, mode) -> None
+    app.state.comparisons_by_task: dict[str, list] = {}
+
+    _pkg = Path(__file__).resolve().parent
+    templates = Jinja2Templates(directory=str(_pkg / "templates"))
+    app.mount("/static", StaticFiles(directory=str(_pkg / "static")), name="static")
 
     @app.get("/health")
     def health():
@@ -194,6 +216,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 return JSONResponse(status_code=404,
                                     content=error_envelope("NOT_FOUND", "record not found in task scope"))
             comparison = do_compare(older, newer)
+            # 记录到任务视图（导出/页面展示用；含指标与年度标签）
+            app.state.comparisons_by_task.setdefault(bound, []).append({
+                "metric_id": newer.get("metric_id"),
+                "older_year": older.get("metric_year"),
+                "newer_year": newer.get("metric_year"),
+                **comparison,
+            })
             return {
                 "ok": True,
                 "data": comparison,
@@ -240,28 +269,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if x_agent_token:
             return JSONResponse(status_code=403,
                                 content=error_envelope("FORBIDDEN", "agent token cannot review"))
-        if not x_user:
+        if not x_user and not request.cookies.get("esg_user"):
             return JSONResponse(status_code=401,
                                 content=error_envelope("UNAUTHORIZED", "user session required"))
-        try:
-            body = await request.json()
-        except Exception:
+        body = await _read_submission(request)
+        if not body:
             return JSONResponse(status_code=400,
-                                content=error_envelope("INVALID_INPUT", "invalid JSON"))
+                                content=error_envelope("INVALID_INPUT", "invalid form or JSON"))
+        try:
+            expected_revision = int(body.get("expected_revision", -1))
+        except (TypeError, ValueError):
+            return JSONResponse(status_code=400, content=error_envelope(
+                "INVALID_INPUT", "expected_revision required"))
+        actor = x_user or request.cookies.get("esg_user") or "local_user"
         cmd = ReviewCommand(
             action=body.get("action", "set_check_status"),
             check_id=body.get("check_id"), new_status=body.get("new_status"),
             reason=body.get("reason", ""),
-            expected_revision=body.get("expected_revision", 0),
+            expected_revision=expected_revision,
             target_key=body.get("target_key"),
         )
         rstore: ReviewStore = app.state.review_store
         # 同步任务仓储 revision：复核仓储未建任务时以主仓储当前 revision 初始化
-        main_rec = store.get(task_id)
+        main_rec = app.state.tasks.get(task_id)
         if task_id not in rstore._tasks and main_rec is not None:
             rstore.create_task(task_id, revision=main_rec.revision)
         try:
-            task = do_review(rstore, task_id, cmd, actor=x_user, is_agent=False)
+            task = do_review(rstore, task_id, cmd, actor=actor, is_agent=False)
         except ReviewError as ex:
             status = 409 if ex.code == "REVISION_CONFLICT" else 400
             payload = error_envelope(ex.code, str(ex), retryable=(status == 409))
@@ -273,7 +307,223 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         score = rstore.get_score(task_id)
         if score is not None:
             score["is_current"] = False
+        # 复核成功后旧导出标记过期（页面与下载仍可见，但不能当当前版本）
+        artifacts: ArtifactStore = app.state.artifacts
+        artifacts.invalidate_task(task_id)
+        # 同步复核后的检查项到服务端检查仓储（评分以服务端为准）
+        confirmed = rstore._checks.get(task_id, {})
+        if confirmed:
+            app.state.checks[task_id] = list(confirmed.values())
         return {"ok": True, "data": task, "error": None,
                 "task_id": task_id, "revision": task["revision"]}
+
+    # ---------------- Task 6：业务页面 / 导出 / PDF 查看 ----------------
+
+    def require_user_session(x_user, x_agent_token, request=None):
+        """用户路由：Agent 令牌一律无权；支持 header 或本地会话 cookie。"""
+        if x_agent_token:
+            return JSONResponse(status_code=403,
+                                content=error_envelope("FORBIDDEN", "agent token cannot use user route"))
+        cookie_user = request.cookies.get("esg_user") if request is not None else None
+        if not x_user and not cookie_user:
+            return JSONResponse(status_code=401,
+                                content=error_envelope("UNAUTHORIZED", "user session required"))
+        return None
+
+    @app.get("/", response_class=HTMLResponse)
+    def index(request: Request, task_id: str | None = None):
+        store: InMemoryTaskStore = app.state.tasks
+        if not task_id:
+            task_id = next(iter(store._tasks), None)
+        rec = store.get(task_id) if task_id else None
+        if task_id and rec is None:
+            return HTMLResponse("<h1>404 · 任务不存在</h1>", status_code=404)
+        evidence_store: EvidenceStore = app.state.evidence
+        evidence_by_id = {e.evidence_id: e for e in evidence_store.items}
+        checks = app.state.checks.get(task_id, []) if task_id else []
+        records = app.state.records.list_by_task(task_id) if task_id else []
+        try:
+            score = do_score(checks, app.state.rulebook) if task_id else None
+        except Exception:
+            score = None
+        artifact_store: ArtifactStore = app.state.artifacts
+        artifacts = artifact_store.list_for_task(task_id) if task_id else []
+        task_view = None
+        if rec is not None:
+            results = rec.results or {}
+            task_view = {
+                "task_id": task_id, "revision": rec.revision,
+                "stage": results.get("stage", "metrics"),
+                "report_ids": results.get("report_ids", []),
+            }
+        response = templates.TemplateResponse(request, "index.html", {
+            "task": task_view,
+            "report_ids": (task_view or {}).get("report_ids", []),
+            "evidence_by_id": evidence_by_id,
+            "records": records,
+            "checks": checks,
+            "score": score,
+            "comparisons": app.state.comparisons_by_task.get(task_id, []),
+            "runs": list(reversed(app.state.runs.list_for_task(task_id))) if task_id else [],
+            "artifacts": artifacts,
+            "check_ids": list(ALL_CHECK_IDS),
+        })
+        # 本地单用户原型：访问页面即建立会话 cookie，浏览器表单无需手写 header
+        response.set_cookie("esg_user", "local_user", httponly=True, samesite="lax")
+        return response
+
+    @app.get("/api/reports/{report_id}/pdf")
+    def report_pdf(report_id: str):
+        """只服务已登记报告的 PDF 文件；不暴露任意路径。"""
+        if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", report_id):
+            return JSONResponse(status_code=404, content=error_envelope("NOT_FOUND", "report not found"))
+        path = app.state.report_paths.get(report_id)
+        if path is None or not Path(path).exists():
+            return JSONResponse(status_code=404, content=error_envelope("NOT_FOUND", "report not found"))
+        return FileResponse(str(path), media_type="application/pdf")
+
+    @app.get("/api/artifacts/{artifact_id}")
+    def artifact_download(artifact_id: str):
+        artifact_store: ArtifactStore = app.state.artifacts
+        meta = artifact_store.get_meta(artifact_id)
+        if meta is None:
+            return JSONResponse(status_code=404, content=error_envelope("NOT_FOUND", "artifact not found"))
+        content = artifact_store.get_content(artifact_id)
+        if content is None:
+            return JSONResponse(status_code=404, content=error_envelope("NOT_FOUND", "artifact not found"))
+        headers = {"X-Artifact-Revision": str(meta["revision"]),
+                   "X-Artifact-Current": "true" if meta["is_current"] else "false",
+                   "Cache-Control": "no-store"}
+        return Response(content, media_type=meta["media_type"], headers=headers)
+
+    async def _read_submission(request: Request) -> dict:
+        """同时接受 JSON 与网页表单（拒绝非字典）。"""
+        ctype = request.headers.get("content-type", "")
+        if "application/json" in ctype:
+            try:
+                body = await request.json()
+                return body if isinstance(body, dict) else {}
+            except Exception:
+                return {}
+        form = await request.form()
+        return dict(form)
+
+    @app.post("/tasks/{task_id}/exports")
+    async def create_export(task_id: str, request: Request,
+                            x_agent_token: str | None = Header(default=None),
+                            x_user: str | None = Header(default=None)):
+        denied = require_user_session(x_user, x_agent_token, request)
+        if denied:
+            return denied
+        body = await _read_submission(request)
+        try:
+            expected_revision = int(body.get("expected_revision", -1))
+        except (TypeError, ValueError):
+            return JSONResponse(status_code=400, content=error_envelope(
+                "INVALID_INPUT", "expected_revision required"))
+        rec = app.state.tasks.get(task_id)
+        if rec is None:
+            return JSONResponse(status_code=404, content=error_envelope("NOT_FOUND", "task not found"))
+        artifact_store: ArtifactStore = app.state.artifacts
+        try:
+            bundle = build_export_bundle(
+                task_id=task_id, expected_revision=expected_revision,
+                current_revision=rec.revision,
+                records=app.state.records.list_by_task(task_id),
+                score=do_score(app.state.checks.get(task_id, []), app.state.rulebook),
+                checks=app.state.checks.get(task_id, []),
+                comparisons=app.state.comparisons_by_task.get(task_id, []),
+                evidence=[e.to_dict() for e in app.state.evidence.items],
+                rule_version=app.state.rulebook["rule_version"],
+                report_meta=[app.state.report_meta.get(rid, {"report_id": rid})
+                             for rid in (rec.results or {}).get("report_ids", [])],
+                store=artifact_store,
+            )
+        except ExportError as ex:
+            status = 409 if ex.code == "REVISION_CONFLICT" else 422
+            payload = error_envelope(ex.code, str(ex), retryable=(status == 409))
+            payload["task_id"] = task_id
+            return JSONResponse(status_code=status, content=payload)
+        except Exception as ex:
+            payload = error_envelope("EXPORT_FAILED", f"{type(ex).__name__}: {ex}")
+            payload["task_id"] = task_id
+            return JSONResponse(status_code=422, content=payload)
+        app.state.exports_by_task[task_id] = bundle
+        return {"ok": True, "data": bundle, "error": None,
+                "task_id": task_id, "revision": bundle["revision"]}
+
+    @app.post("/tasks/{task_id}/agent-runs")
+    async def start_agent_run(task_id: str, request: Request,
+                              x_agent_token: str | None = Header(default=None),
+                              x_user: str | None = Header(default=None)):
+        denied = require_user_session(x_user, x_agent_token, request)
+        if denied:
+            return denied
+        rec = app.state.tasks.get(task_id)
+        if rec is None:
+            return JSONResponse(status_code=404, content=error_envelope("NOT_FOUND", "task not found"))
+        body = await _read_submission(request)
+        mode = str(body.get("mode", "full_evaluation"))
+        if mode not in ("full_evaluation", "question", "resume"):
+            return JSONResponse(status_code=422, content=error_envelope("INVALID_MODE", "bad mode"))
+        try:
+            expected_revision = int(body.get("expected_revision", -1))
+        except (TypeError, ValueError):
+            return JSONResponse(status_code=400, content=error_envelope(
+                "INVALID_INPUT", "expected_revision required"))
+        if expected_revision != rec.revision:
+            return JSONResponse(status_code=409,
+                                content={**error_envelope("REVISION_CONFLICT", "revision mismatch", True),
+                                         "task_id": task_id, "revision": rec.revision})
+        # 同任务串行：已有 queued/running 时拒绝重复启动
+        active = [r for r in app.state.runs.list_for_task(task_id)
+                  if r.status.value in ("queued", "running")]
+        if active:
+            return JSONResponse(status_code=409,
+                                content={**error_envelope("RUN_BUSY", "task already has active run", True),
+                                         "task_id": task_id, "revision": rec.revision})
+
+        import threading
+        import uuid
+
+        # 用户问题作为固定业务模板数据，不把原文直接交给 SDK 命令路由
+        prompt = f"[ESG任务:{task_id}] mode={mode} revision={rec.revision}"
+        run = app.state.runs.create_queued(task_id, session_id=f"sess_{uuid.uuid4().hex[:12]}")
+
+        def worker():
+            app.state.runs.mark_running(run.run_id)
+            starter = app.state.agent_starter
+            try:
+                if starter is None:
+                    # 未注入真实宿主时不得假装成功：明确 failed（离线页面演示）
+                    raise RuntimeError("agent runner not configured for this task")
+                starter(task_id, run.run_id, mode, prompt)
+            except Exception as ex:
+                app.state.runs.fail(run.run_id, f"{type(ex).__name__}: {ex}")
+
+        threading.Thread(target=worker, daemon=True).start()
+        return {"ok": True,
+                "data": {"run_id": run.run_id, "status": run.status.value,
+                         "task_id": task_id, "revision": rec.revision},
+                "error": None, "task_id": task_id, "revision": rec.revision}
+
+    @app.get("/tasks/{task_id}/agent-runs/{run_id}")
+    def get_agent_run(task_id: str, run_id: str, request: Request,
+                      x_agent_token: str | None = Header(default=None),
+                      x_user: str | None = Header(default=None)):
+        denied = require_user_session(x_user, x_agent_token, request)
+        if denied:
+            return denied
+        try:
+            run = app.state.runs.get(run_id)
+        except KeyError:
+            return JSONResponse(status_code=404, content=error_envelope("NOT_FOUND", "run not found"))
+        if run.task_id != task_id:
+            return JSONResponse(status_code=404, content=error_envelope("NOT_FOUND", "run not found"))
+        return {"ok": True,
+                "data": {"run_id": run.run_id, "task_id": run.task_id,
+                         "status": run.status.value, "answer": run.answer,
+                         "error": run.error, "revision": run.revision},
+                "error": None, "task_id": task_id}
 
     return app

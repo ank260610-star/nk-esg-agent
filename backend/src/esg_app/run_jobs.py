@@ -56,3 +56,17 @@ class AgentRunStore:
 
     def get(self, run_id: str) -> AgentRun:
         return self._runs[run_id]
+
+    def list_for_task(self, task_id: str) -> list[AgentRun]:
+        return [r for r in self._runs.values() if r.task_id == task_id]
+
+    def create_queued(self, task_id: str, session_id: str) -> AgentRun:
+        """先落 queued，再由后台线程推进；防止阻塞 HTTP 事件循环。"""
+        import uuid
+        run = AgentRun(run_id=uuid.uuid4().hex, task_id=task_id,
+                       session_id=session_id, status=RunStatus.QUEUED)
+        self._runs[run.run_id] = run
+        return run
+
+    def mark_running(self, run_id: str) -> None:
+        self._runs[run_id].status = RunStatus.RUNNING

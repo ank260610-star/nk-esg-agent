@@ -229,3 +229,31 @@ coverage=0.125、参考分75、区间[9.375,96.875]、final=null、label=insuffi
 
 **仍未完成**：Task 6/7 页面、PDF 定位与同版本导出、完整演示链；
 `parse_report` 服务端契约（revision 递增+幂等，属业务仓储）。
+
+---
+
+## Task 6（用户页面 / PDF 定位 / 同版本导出）— 通过
+
+记录时间：2026-11-22。
+
+新增模块：
+- `exports.py`：`export_analysis` 同版本三格式（Markdown/CSV/JSON）。CSV 缺失值写空串、`/` 原样保留，
+  绝不当 0；公式注入首字符（`= + - @`、制表/回车）加 `'` 转义，但正常负数（如 `-18.15`）保持数值语义。
+  `ArtifactStore` 以服务端生成的 `artifact_id` 查表下载，文件名仅取 basename、路径片段/`..` 一律拒绝；
+  复核后旧产物 `is_current=false`（仍可下载但页面标「已过期」）。
+- `templates/index.html` + `static/style.css`：四区域业务页（报告导入 / 指标与证据 / 评分与未知项 /
+  人工复核 / 导出），Jinja2 默认转义不可信报告文本；证据链接指向 `/api/reports/{id}/pdf#page=N`，
+  PDF 端点只服务已登记 report_id，不暴露内部路径。
+- `main.py`：`POST /tasks/{id}/exports`、`POST /tasks/{id}/agent-runs`（后台线程，不阻塞事件循环；
+  mode 限白名单、revision 冲突 409、同任务 active run 互斥）、`GET .../agent-runs/{run_id}`、
+  `GET /api/artifacts/{id}`、`GET /api/reports/{id}/pdf`。用户路由拒绝 Agent 令牌；
+  本地单用户原型用首页 cookie 会话兼容浏览器表单（无真实认证，服务仍只绑定 127.0.0.1）。
+- 复核路由修复两处既有缺口：① 引用了只在 `agent_tool` 内定义的 `store`（用户成功复核路径此前会 500，
+  旧测试只覆盖「Agent 令牌被拒」未触发）；② 表单提交不再强制 JSON，revision 字符串转 int。
+  复核成功后服务端检查项同步、旧导出失效。
+
+测试：`test_exports.py` 12 项 + `test_web.py` 12 项；契约 16 + pytest **153 passed + 30 subtests**。
+新增依赖：`jinja2 3.1.6`、`python-multipart 0.0.34`（阿里云镜像装，清代理）。
+
+**仍未完成**：Task 7 完整 Harness 编排与证据问答（`agent-runs` 目前只落 queued/failed 状态骨架，
+未接真实 SDK 会话，不宣称端到端可用）；`parse_report` 服务端契约（业务仓储范围）。

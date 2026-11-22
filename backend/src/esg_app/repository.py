@@ -53,3 +53,7 @@ class RecordStore:
     def get(self, record_id: str) -> dict | None:
         return self._records.get(record_id)
 
+    def list_by_task(self, task_id: str) -> list[dict]:
+        """按任务归属列出当前记录（导出/页面用，跨任务不可见）。"""
+        return [r for r in self._records.values() if r.get("task_id") == task_id]
+
