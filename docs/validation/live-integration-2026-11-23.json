@@ -1,0 +1,80 @@
+{
+  "source_commit": "000794f370c67334e49fa78ac0f320f57621c32d",
+  "recorded_at": "2026-11-23T14:36:11.017412+00:00",
+  "python": "3.14.6",
+  "pytest_passed": 275,
+  "subtests_passed": 30,
+  "plugin_tests_passed": 11,
+  "plugin_typecheck": true,
+  "plugin_build": true,
+  "loopback_ten_tool_bridge": true,
+  "bridge_provider": "offline_stub",
+  "real_sdk_probe": {
+    "status": "sdk_session_initialized",
+    "sdk": "0.2.2rc2",
+    "runtime": "0.2.2rc2",
+    "model_called": false,
+    "session_cwd_verified": true,
+    "resume_checked": false
+  },
+  "live_preflight": {
+    "status": "blocked",
+    "model_called": false,
+    "missing": [
+      "DEEPSEEK_API_KEY"
+    ]
+  },
+  "wheel_sources_prompts_and_app_smoke": true,
+  "frontend_data_and_js_syntax": true,
+  "byd": {
+    "checks_passed": 18,
+    "checks_total": 18,
+    "raw_metrics": 6,
+    "top5_page_hits": 6,
+    "year_matches": 12,
+    "year_total": 12
+  },
+  "real_model_invocation": false,
+  "real_conversation_resume_verified": false,
+  "task7_accepted": false,
+  "task8_accepted": false,
+  "open_items": [
+    "DEEPSEEK_API_KEY missing",
+    "Real model and persisted conversation recovery not verified",
+    "User-facing metric confirmation endpoint pending",
+    "Unified main-model and backend total budget pending",
+    "Local user session is not production authentication"
+  ],
+  "source_files_sha256": {
+    "backend/src/esg_app/__init__.py": "5f935faa3ddc3184b3e3528ce5f9b9cdbee79fe48c7e33656872bbd5975a6d09",
+    "backend/src/esg_app/agent_host.py": "3fe03f51d186cf606022ff1f74bd66c255a99758f03a694ab8332a0fca4151aa",
+    "backend/src/esg_app/comparison.py": "c64874094a367271d64f24bd6a42ac21bd4a9b1987328b69aa6177502f256d19",
+    "backend/src/esg_app/config.py": "da3efdbb6c72978263f3db286823d623f20dfa8562433e505ab110e718961604",
+    "backend/src/esg_app/export_service.py": "201a880c16105d98109a4bf17444eed98d7fe33a988432c99a230fe3a96c6f5c",
+    "backend/src/esg_app/exports.py": "1ebdcaa84c46c05cabe994dc1a748f566de61e0ed8198bef839e341b2595c43c",
+    "backend/src/esg_app/extraction.py": "9bf86514e0c09ce300c006ce1832f80cb03a0a77310ba4949a7d3f8d07e7b401",
+    "backend/src/esg_app/frontend_demo.py": "84f183e42312f88a0eecabf7099255df0ef7afbe26ef4c76d1e45f4f9a1b32e6",
+    "backend/src/esg_app/harness_runner.py": "0cebce690ee445ad46e7d41b6f37f0a2d35a61ccdae85d289a0ad2b2987a5716",
+    "backend/src/esg_app/main.py": "ec0945fed81119d845e6a415ea3439f24d6df17348394b48ce4570619e0a90d0",
+    "backend/src/esg_app/metrics.py": "27bd9ff9f8b9a3b78d5bdcb5d47431714ad54871944ce972e84d7c0768a76815",
+    "backend/src/esg_app/model_extractor.py": "293d2d02cdee5dacde932399882d760e9f696944161cba5572fdba313488740a",
+    "backend/src/esg_app/parse_repository.py": "86564d0361a3eb1b4c5a4fdc778a038af4c488eef1e513fdc57b7a2bcc8bdb85",
+    "backend/src/esg_app/parse_service.py": "8e23470d40ec593b81fe720d69e65e4cccea86914aaf34f33ddd588a617478bc",
+    "backend/src/esg_app/parsing.py": "63b1644efcf3c85cae9a09791eceb7b401f6abd1df102a85c7e75cca929b9c53",
+    "backend/src/esg_app/prompts/esg-agent.md": "9dc1427540feccd58f9f917e55661e8ad9cee3025e411a1db3e50089f52e15a7",
+    "backend/src/esg_app/prompts/metric-extraction.md": "cce62d9ac208cbd72aecd77434aad282025f40d645a17757a6f8dde061beebea",
+    "backend/src/esg_app/reports.py": "b391e305fe6d70957ca43835c2ebbb06fbb3e3e7cbe8ee320b3be40edda9c3e2",
+    "backend/src/esg_app/repository.py": "ed0bae92ea8f4cc68c254ef776908bfcebdcbbfe9cfe0d73ac9a30e5e416c586",
+    "backend/src/esg_app/retrieval.py": "06e48e3457f90fa3032fe04ff2fd30ef1d1d1e7e8c8e5c69dbe49bd337b6a5e6",
+    "backend/src/esg_app/review.py": "5afe69eea0752ad78f827219a8f0a68219993c362248256e06b1f5cac0118ade",
+    "backend/src/esg_app/rules_registry.py": "62c0af4496409737c6dab3330c0b41e3410b1a524e1c19362c5407d4ed3fb9cf",
+    "backend/src/esg_app/run_jobs.py": "a0a346a8c3bccc8c216469984e50c390d545fc8f2717b6170b24f11846ef1eee",
+    "backend/src/esg_app/schemas.py": "cd66ca7f46f99e2d61abea75dba8ec4b994d4b0b859253f40c8f4ca7ceafd9e5",
+    "backend/src/esg_app/scoring.py": "9b46edabf4e0bffe7e5f077393b42725719c57f622db6dd99bda71e1805ff1da",
+    "backend/src/esg_app/write_service.py": "b1922629c52239f0a1da8e3fb331efff68756d013dc9ae5055ddf6c6d707992f",
+    "harness-plugin/src/client.ts": "e2c5fe0c554bdd2cfd74de8c10dbf28a2da504bcd7f55b09023689d906950b09",
+    "harness-plugin/src/index.ts": "c0075939c128c53b62dc686204455fa9d6751f17bc9da0814a5d846251bf1005",
+    "harness-plugin/src/tools.ts": "f046a41d9f04e13b345e329e834f7aecba59ad71ab40511716cfae99b583876b",
+    "pyproject.toml": "24f99b7a850ce3315c6d4602730f7203304076a5c1e04a79837e677b6fcdc1fe"
+  }
+}
