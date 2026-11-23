@@ -22,3 +22,9 @@ Python代码统一位于backend/src/esg_app/，依赖配置在根目录pyproject
 已接入任务令牌授权、SQLite 任务版本/解析证据持久化、原子幂等提交与文件哈希/解析器版本缓存。
 运行、宿主登记与验收边界见[解析接入与验收](../docs/parse-report-acceptance.md)。
 本次接入不代表其他工具已全部满足持久化契约，也不代表真实 SDK 整链或第二报告已验收。
+
+## 前端演示入口
+
+原三栏前端以 `frontend_demo.py` 与 `demo_templates/` 保留，运行 `esg_app.frontend_demo:app`；
+业务服务继续使用 `main.py:create_app --factory` 和 `templates/`，二者不互相覆盖。
+两者当前没有业务API集成，详见[前端说明](../docs/frontend-workbench.md)。

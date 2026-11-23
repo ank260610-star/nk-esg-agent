@@ -6,6 +6,20 @@
 
 启动、可信宿主登记与解析验收边界见[parse_report 接入说明](docs/parse-report-acceptance.md)。
 
+## 统一开发入口
+
+业务后端与原前端演示均保留在 `backend/src/esg_app/`，使用不同应用入口：
+
+| 用途 | 启动命令（仓库根目录） | 地址 |
+|---|---|---|
+| 业务服务与服务端页面 | `.venv/bin/python -m uvicorn esg_app.main:create_app --factory --app-dir backend/src --host 127.0.0.1 --port 8000` | http://127.0.0.1:8000 |
+| 三栏前端演示 | `.venv/bin/python -m uvicorn esg_app.frontend_demo:app --app-dir backend/src --host 127.0.0.1 --port 8765` | http://127.0.0.1:8765 |
+
+完整开发环境先运行 `python3 -m venv .venv` 和 `.venv/bin/python -m pip install -e '.[dev]'`。
+Windows 将 `.venv/bin/python` 替换为 `.venv\Scripts\python.exe`。
+前端演示的分析、问答和评分使用预设数据；本地PDF仅预览，复核状态刷新后重置。
+页面详情与独立前端依赖锁见[前端说明](docs/frontend-workbench.md)。
+
 ## 从这里开始
 
 1. 阅读[需求文档](项目需求文档.md)与[实现交接文档 v0.3](docs/superpowers/plans/2026-11-19-esg-agent-implementation.md)。
