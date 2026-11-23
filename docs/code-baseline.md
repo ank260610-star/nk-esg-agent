@@ -30,8 +30,9 @@ node --input-type=module --check < backend/src/esg_app/static/js/app.js
 node --input-type=module --check < backend/src/esg_app/static/js/demo-data.js
 ```
 
-本次 Python：201 项测试、30 个子测试通过；前端数据与脚本语法检查通过。
-新增前端文件直接来自原目录；仅调整 Python 模块入口与独立模板路径，业务接口及解析器未改动。
+本次 Python：202 项测试、30 个子测试通过；前端数据与脚本语法检查通过。
+新增前端文件直接来自原目录；调整 Python 模块入口与独立模板路径，业务接口及解析器保持不变。
+导出产物目录跟随文件数据库所在目录；内存配置使用运行目录 `data/`，避免安装后向源码外的系统路径写入。
 原目录未提交文件已备份并逐文件核验不变。
 插件 `npm run check`、`npm run build` 与 `npm test`（3项）通过；
 wheel 构建、两套模板与静态资源完整性、从 wheel 加载两个应用的冒烟检查通过。

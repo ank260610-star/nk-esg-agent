@@ -64,8 +64,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.checks: dict[str, list] = {}
     app.state.review_store = ReviewStore()
     # Task 6 导出：产物目录由服务端生成，下载仅按 artifact_id 查表
-    # 项目根 data/ 已被 .gitignore 排除，不把产物写进源码树
-    app.state.artifacts = ArtifactStore(Path(__file__).resolve().parents[3] / "data" / "artifacts")
+    # 文件数据库的产物放在同一数据目录；内存配置使用运行目录的 data/。
+    data_dir = Path(settings.database_path).parent if settings.database_path != ":memory:" else Path("data")
+    app.state.artifacts = ArtifactStore(data_dir / "artifacts")
     app.state.exports_by_task: dict[str, dict] = {}
     # 已登记报告的真实文件路径只存在服务端映射，页面只得到 report_id
     app.state.report_paths: dict[str, Path] = {}

@@ -368,3 +368,12 @@ def test_review_uses_authoritative_revision_after_parse(tmp_path):
     fresh = review(8)
     assert fresh.status_code == 200
     assert fresh.json()['revision'] == 9
+
+
+def test_exports_follow_configured_database_directory(tmp_path):
+    app, client, repo = setup(tmp_path)
+    response = client.post('/tasks/t/exports', headers={'X-User':'reviewer'}, json={'expected_revision':6})
+    assert response.status_code == 200, response.text
+    for artifact in response.json()['data']['artifacts']:
+        assert (tmp_path / 'artifacts' / artifact['filename']).is_file()
+        assert client.get(artifact['download_url'], headers={'X-User':'reviewer'}).status_code == 200
