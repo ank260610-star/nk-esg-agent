@@ -30,10 +30,15 @@ node --input-type=module --check < backend/src/esg_app/static/js/app.js
 node --input-type=module --check < backend/src/esg_app/static/js/demo-data.js
 ```
 
-本次 Python：202 项测试、30 个子测试通过；前端数据与脚本语法检查通过。
+本次 Python：217 项测试、30 个子测试通过；前端数据与脚本语法检查通过。
 新增前端文件直接来自原目录；调整 Python 模块入口与独立模板路径，业务接口及解析器保持不变。
 导出产物目录跟随文件数据库所在目录；内存配置使用运行目录 `data/`，避免安装后向源码外的系统路径写入。
 原目录未提交文件已备份并逐文件核验不变。
 插件 `npm run check`、`npm run build` 与 `npm test`（3项）通过；
 wheel 构建、两套模板与静态资源完整性、从 wheel 加载两个应用的冒烟检查通过。
 Task 7 真实 SDK 整链、真实 PDF 回归和 Task 8 第二报告仍需独立验收。
+
+## 真实PDF复验
+
+通用表块、折行单元格和脚注关联已修复。六指标12个年度项及脚注21通过，
+但全报告仍有两项非目标内容问题；详见[回归记录](validation/byd-real-pdf-2026-11-23.md)。

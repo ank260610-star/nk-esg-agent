@@ -1,0 +1,19 @@
+{
+  "checks": {
+    "upgrade_success": true,
+    "revision_increment_once": true,
+    "evidence_replaced_not_appended": true,
+    "all_ids_unique": true,
+    "cache_no_extra_revision": true,
+    "cache_no_duplicate_evidence": true,
+    "old_and_new_cache_versions_separate": true,
+    "restart_old_request_replays_new_success": true
+  },
+  "before_count": 514,
+  "after_count": 589,
+  "cache_versions": [
+    "pdfplumber-0.11.11+coord-contract-v1",
+    "pdfplumber-0.11.11+coord-contract-v2"
+  ],
+  "overall_pass": true
+}
