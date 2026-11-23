@@ -1,0 +1,118 @@
+{
+  "tested_source_commit": "fd84d51b347249ad1a07fd329820343ef26816ca",
+  "tested_at": "2026-11-23T11:55:41.057390+00:00",
+  "python": "3.14.6",
+  "tests": {
+    "pytest_passed": 249,
+    "subtests_passed": 30,
+    "new_write_contract_cases": 32,
+    "frontend_data_check": true,
+    "frontend_js_syntax": true,
+    "plugin_typecheck": true,
+    "plugin_build": true,
+    "plugin_tests_passed": 3,
+    "wheel_resource_dependency_and_app_smoke": true
+  },
+  "known_11_gaps": [
+    {
+      "case": "exact_idempotent_replay",
+      "test": "test_replay_is_exact_and_survives_restart",
+      "passed": true
+    },
+    {
+      "case": "extraction_increments_revision",
+      "test": "test_replay_is_exact_and_survives_restart",
+      "passed": true
+    },
+    {
+      "case": "documented_extract_http_route",
+      "test": "test_replay_is_exact_and_survives_restart",
+      "passed": true
+    },
+    {
+      "case": "boolean_revision_rejected",
+      "test": "test_strict_inputs_no_model_call",
+      "passed": true
+    },
+    {
+      "case": "unselected_year_rejected",
+      "test": "test_strict_inputs_no_model_call",
+      "passed": true
+    },
+    {
+      "case": "revision_rechecked_before_commit",
+      "test": "test_revision_changed_during_model_has_no_candidate_writes_but_usage",
+      "passed": true
+    },
+    {
+      "case": "foreign_evidence_batch_error",
+      "test": "test_foreign_evidence_rejects_batch_even_for_human_protected_key",
+      "passed": true
+    },
+    {
+      "case": "kwh_mwh_scale",
+      "test": "test_comparison_does_not_assume_equal_units_methods_or_denominators",
+      "passed": true
+    },
+    {
+      "case": "method_gate",
+      "test": "test_comparison_does_not_assume_equal_units_methods_or_denominators",
+      "passed": true
+    },
+    {
+      "case": "denominator_currency_gate",
+      "test": "test_comparison_does_not_assume_equal_units_methods_or_denominators",
+      "passed": true
+    },
+    {
+      "case": "export_version_guard",
+      "test": "test_export_version_changed_during_generation_is_not_published",
+      "passed": true
+    }
+  ],
+  "byd": {
+    "checks_passed": 18,
+    "checks_total": 18,
+    "raw_metrics": 6,
+    "top5_page_hits": 6,
+    "year_matches": 12,
+    "year_total": 12
+  },
+  "byd_overall_pass": true,
+  "pdf_sha256": "8dfceabd75452ffaf39b0ffa7a1e841707b586931347819e058ebb343c93b1dd",
+  "source_files_sha256": {
+    "backend/src/esg_app/__init__.py": "5f935faa3ddc3184b3e3528ce5f9b9cdbee79fe48c7e33656872bbd5975a6d09",
+    "backend/src/esg_app/comparison.py": "c64874094a367271d64f24bd6a42ac21bd4a9b1987328b69aa6177502f256d19",
+    "backend/src/esg_app/config.py": "16cfff87db24e0a0364c1fb031b05db7753106b0d857eea6a83c77290920bcd9",
+    "backend/src/esg_app/contract_schema.json": "78276534b35e4308578e024c8188c1bdae0952a99b0e2e784ba8e4bb6eb25ca5",
+    "backend/src/esg_app/export_service.py": "201a880c16105d98109a4bf17444eed98d7fe33a988432c99a230fe3a96c6f5c",
+    "backend/src/esg_app/exports.py": "1ebdcaa84c46c05cabe994dc1a748f566de61e0ed8198bef839e341b2595c43c",
+    "backend/src/esg_app/extraction.py": "70540e09ae6074959b7985f86c4eeeb595919c53b83cecfe6e97bc558413932c",
+    "backend/src/esg_app/frontend_demo.py": "84f183e42312f88a0eecabf7099255df0ef7afbe26ef4c76d1e45f4f9a1b32e6",
+    "backend/src/esg_app/harness_runner.py": "6bc11090d7b41dc3e55c25f47fe9fb3cf94028972313972bc118fc7e4fb13a02",
+    "backend/src/esg_app/main.py": "128706ebe37a124539799bbfb0a05ee2bd6a2532d0a962f989d6ae91e45b7b29",
+    "backend/src/esg_app/metrics.py": "27bd9ff9f8b9a3b78d5bdcb5d47431714ad54871944ce972e84d7c0768a76815",
+    "backend/src/esg_app/parse_repository.py": "ae4053e0803a8fcc8d2d369a3455e98a1887a39f4e0b0b0264a03d7d3ff57381",
+    "backend/src/esg_app/parse_service.py": "8e23470d40ec593b81fe720d69e65e4cccea86914aaf34f33ddd588a617478bc",
+    "backend/src/esg_app/parsing.py": "63b1644efcf3c85cae9a09791eceb7b401f6abd1df102a85c7e75cca929b9c53",
+    "backend/src/esg_app/reports.py": "b391e305fe6d70957ca43835c2ebbb06fbb3e3e7cbe8ee320b3be40edda9c3e2",
+    "backend/src/esg_app/repository.py": "ed0bae92ea8f4cc68c254ef776908bfcebdcbbfe9cfe0d73ac9a30e5e416c586",
+    "backend/src/esg_app/retrieval.py": "06e48e3457f90fa3032fe04ff2fd30ef1d1d1e7e8c8e5c69dbe49bd337b6a5e6",
+    "backend/src/esg_app/review.py": "5afe69eea0752ad78f827219a8f0a68219993c362248256e06b1f5cac0118ade",
+    "backend/src/esg_app/rules_registry.py": "62c0af4496409737c6dab3330c0b41e3410b1a524e1c19362c5407d4ed3fb9cf",
+    "backend/src/esg_app/run_jobs.py": "3bffa56c49d6a9fc158aa47916c4ace0d64967fdbfc12fc8aaa741870cc4187b",
+    "backend/src/esg_app/schemas.py": "cd66ca7f46f99e2d61abea75dba8ec4b994d4b0b859253f40c8f4ca7ceafd9e5",
+    "backend/src/esg_app/scoring.py": "9b46edabf4e0bffe7e5f077393b42725719c57f622db6dd99bda71e1805ff1da",
+    "backend/src/esg_app/write_service.py": "1fa440ec89ec40568ac802451821de8ce1229a397a144ff6027566ab1a86df53",
+    "pyproject.toml": "d6f660f25117f204c1e2d5e07a3337a6e1c80d95c00364c838aaefab681dc11b",
+    "tests/test_write_contract.py": "45c54b11777a4fb00b6d800d066063943c575312682c86a0bcf0c8412fd4d209"
+  },
+  "limits": [
+    "Model tests use offline stubs.",
+    "Task 7 real Harness chain not run.",
+    "Task 8 second report not run.",
+    "Local cookie/X-User is not production authentication.",
+    "Backend extraction quota is not unified with Harness billing.",
+    "BYD parse remains partial with p127/p130 non-target issues."
+  ]
+}
