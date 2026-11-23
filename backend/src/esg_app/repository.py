@@ -57,3 +57,30 @@ class RecordStore:
         """按任务归属列出当前记录（导出/页面用，跨任务不可见）。"""
         return [r for r in self._records.values() if r.get("task_id") == task_id]
 
+
+
+class PersistentRecordStore:
+    """可信宿主登记接口；工具的批量写入由业务事务处理。"""
+    def __init__(self, repository):
+        self.repository = repository
+
+    def add(self, record_id, record):
+        from .parse_repository import read_business, save_business
+        with self.repository.transaction() as db:
+            state = read_business(db, record['task_id'])
+            state['records'] = [r for r in state['records'] if r['record_id'] != record_id] + [record]
+            save_business(db, record['task_id'], state)
+
+    def get(self, record_id):
+        import json
+        with self.repository.transaction() as db:
+            for row in db.execute('SELECT data FROM business_state'):
+                for record in json.loads(row[0])['records']:
+                    if record['record_id'] == record_id:
+                        return record
+        return None
+
+    def list_by_task(self, task_id):
+        from .parse_repository import read_business
+        with self.repository.transaction() as db:
+            return read_business(db, task_id)['records']

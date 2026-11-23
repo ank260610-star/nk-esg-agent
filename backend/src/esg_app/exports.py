@@ -48,7 +48,8 @@ def csv_safe_cell(value) -> str:
 class ArtifactStore:
     """登记产物：仅以 artifact_id 为键，目录/文件名由服务端生成。"""
 
-    def __init__(self, root: Path | str):
+    def __init__(self, root: Path | str, repository=None):
+        self.repository = repository
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self._meta: dict[str, dict] = {}
@@ -78,6 +79,9 @@ class ArtifactStore:
             "is_current": True,
             "_path": str(path),
         }
+        if self.repository is not None:
+            with self.repository.transaction() as db:
+                db.execute('INSERT INTO artifacts VALUES(?,?,?)', (artifact_id, task_id, json.dumps(meta)))
         self._meta[artifact_id] = meta
         self._task_artifacts.setdefault(task_id, []).append(artifact_id)
         return self.public(meta)
@@ -95,6 +99,15 @@ class ArtifactStore:
         # 严格 ID 校验：任何路径片段、斜杠、.. 直接拒绝
         if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", artifact_id):
             return None
+        if self.repository is not None:
+            with self.repository.transaction() as db:
+                row = db.execute('SELECT metadata FROM artifacts WHERE artifact_id=?', (artifact_id,)).fetchone()
+                if not row:
+                    return None
+                meta = json.loads(row[0])
+                task = db.execute('SELECT revision FROM tasks WHERE task_id=?', (meta['task_id'],)).fetchone()
+                meta['is_current'] = bool(task and task[0] == meta['revision'])
+                return meta
         return self._meta.get(artifact_id)
 
     def is_current(self, artifact_id: str) -> bool:
@@ -109,13 +122,22 @@ class ArtifactStore:
         root = self.root.resolve()
         if root not in path.parents:
             return None
-        return path.read_bytes()
+        try:
+            return path.read_bytes()
+        except OSError:
+            return None
 
     def invalidate_task(self, task_id: str) -> None:
         for aid in self._task_artifacts.get(task_id, []):
             self._meta[aid]["is_current"] = False
 
     def list_for_task(self, task_id: str) -> list[dict]:
+        if self.repository is not None:
+            with self.repository.transaction() as db:
+                task = db.execute('SELECT revision FROM tasks WHERE task_id=?', (task_id,)).fetchone()
+                return [{**self.public(meta), 'is_current': bool(task and task[0] == meta['revision'])}
+                        for (raw,) in db.execute('SELECT metadata FROM artifacts WHERE task_id=?', (task_id,))
+                        for meta in [json.loads(raw)]]
         return [
             {**self.public(self._meta[aid]),
              "is_current": self._meta[aid]["is_current"]}
@@ -240,11 +262,11 @@ def build_export_bundle(task_id: str, expected_revision: int, current_revision: 
                         "N/A 须人工确认", "单一样本不代表行业"],
     }
     contents = [
-        ("markdown", "text/markdown; charset=utf-8", "md",
+        ("markdown", "text/markdown", "md",
          _render_markdown(task_id, current_revision, records, score, checks,
                           comparisons, evidence, rule_version, report_meta)),
-        ("csv", "text/csv; charset=utf-8", "csv", _render_csv(records)),
-        ("json", "application/json; charset=utf-8", "json",
+        ("csv", "text/csv", "csv", _render_csv(records)),
+        ("json", "application/json", "json",
          json.dumps(json_payload, ensure_ascii=False, indent=2, default=str)),
     ]
     artifacts = []

@@ -1,4 +1,4 @@
-"""Task 1 最小 FastAPI 服务。
+"""ESG 业务 FastAPI 服务。
 
 严格对齐 contracts v0.2.0 的 ToolResult 信封：
 - ok=true:  data / error=null / task_id / revision
@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import os
+from uuid import uuid4
 from copy import deepcopy
 import re
 from pathlib import Path
@@ -20,18 +21,19 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
 from .config import Settings
-from .parse_repository import ParseRepository
+from .parse_repository import ParseRepository, read_business, save_business, bound_reports
 from .parse_service import ParseService, ParseError
 from .retrieval import Evidence
-from .repository import InMemoryTaskStore, RecordStore
+from .repository import InMemoryTaskStore, PersistentRecordStore
 from .run_jobs import AgentRunStore
 from .retrieval import EvidenceStore, search_evidence as do_search
-from .extraction import ExtractionDeps, extract_metrics as do_extract, RevisionChanged
-from .comparison import compare_records as do_compare
+from .extraction import ExtractionDeps
 from .scoring import load_rulebook, score_checks as do_score
 from .review import ReviewStore, ReviewCommand, apply_review as do_review, ReviewError
-from .exports import ArtifactStore, ExportError, build_export_bundle
+from .exports import ArtifactStore
+from .export_service import ExportService
 from .rules_registry import ALL_CHECK_IDS
+from .write_service import WriteService, WRITES, envelope, validate
 
 
 def error_envelope(code: str, message: str, retryable: bool = False) -> dict:
@@ -51,22 +53,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.tasks = ParseRepository(settings.database_path)
     app.state.runs = AgentRunStore()
     # Task 4 记录仓储：extract 产出按 record_id 存，供 compare 取用
-    app.state.records = RecordStore()
+    app.state.records = PersistentRecordStore(app.state.tasks)
     # Task 2 证据仓储：默认空，由 register_report/parse 流程填充
     app.state.evidence = EvidenceStore([])
     # Task 3 提取依赖：默认拒绝空候选（模型替身须由后端显式注入）
     app.state.extraction_deps = ExtractionDeps(
-        model_fn=lambda ctx: [], extractor_version="backend-default",
+        model_fn=None, extractor_version="backend-default",
         model_id=None, prompt_version=None,
     )
-    # Task 5 评分：规则书一次性加载；检查项按 task_id 存（真实实现应入 SQLite）
+    # 检查项以 SQLite 业务快照为准；映射保留给可信宿主的演示夹具。
     app.state.rulebook = load_rulebook()
     app.state.checks: dict[str, list] = {}
     app.state.review_store = ReviewStore()
     # Task 6 导出：产物目录由服务端生成，下载仅按 artifact_id 查表
     # 文件数据库的产物放在同一数据目录；内存配置使用运行目录的 data/。
     data_dir = Path(settings.database_path).parent if settings.database_path != ":memory:" else Path("data")
-    app.state.artifacts = ArtifactStore(data_dir / "artifacts")
+    app.state.artifacts = ArtifactStore(data_dir / "artifacts", app.state.tasks)
     app.state.exports_by_task: dict[str, dict] = {}
     # 已登记报告的真实文件路径只存在服务端映射，页面只得到 report_id
     app.state.report_paths: dict[str, Path] = {}
@@ -75,6 +77,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # 后台运行：真实的 SDK 宿主由 harness_runner 提供；缺密钥则标记 failed
     app.state.agent_starter = None  # 由测试/运行器注入 (task_id, run_id, mode) -> None
     app.state.comparisons_by_task: dict[str, list] = {}
+
+    # Restore persisted business views for the existing page adapters.
+    with app.state.tasks.transaction() as db:
+        for (tid,) in db.execute('SELECT task_id FROM business_state'):
+            state = read_business(db, tid)
+            app.state.checks[tid] = state['checks']
+            app.state.comparisons_by_task[tid] = state['comparisons']
+            review = state.get('review')
+            if review:
+                app.state.review_store._tasks[tid] = review['task']
+                app.state.review_store._checks[tid] = {c['check_id']: c for c in state['checks']}
+                app.state.review_store._events[tid] = review['events']
 
     _pkg = Path(__file__).resolve().parent
     templates = Jinja2Templates(directory=str(_pkg / "templates"))
@@ -94,14 +108,84 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         rec = app.state.tasks.get(task_id)
         if rec is None:
             return []
-        allowed = set((rec.results or {}).get("report_ids") or [])
+        results = rec.results or {}
+        allowed = set(bound_reports(results))
         parsed = [Evidence(**e) for e in app.state.tasks.evidence_for_task(task_id)]
         parsed_reports = {e.report_id for e in parsed}
         return parsed + [e for e in app.state.evidence.items
                          if e.report_id in allowed and e.report_id not in parsed_reports]
 
+    app.state.write_service = WriteService(app, task_evidence)
+    app.state.export_service = ExportService(app, task_evidence)
+
+    def current_results(task_id, token):
+        rec = app.state.tasks.get(task_id)
+        data = rec.results
+        if not hasattr(app.state.tasks, 'transaction'):
+            return envelope(task_id, rec.revision, data)
+        with app.state.tasks.transaction() as db:
+            state = read_business(db, task_id)
+            revision, data = app.state.write_service.auth(db, task_id, token)
+        data.update(metrics=state['records'], checks=state['checks'], comparisons=state['comparisons'],
+                    extraction_runs=state['runs'], issues=state['issues'], score=state.get('score') if state.get('score', {}).get('revision') == revision else None,
+                    review_url=f'/tasks/{task_id}/review')
+        if isinstance(data.get('task'), dict):
+            data['task']['revision'] = revision
+        # Host registration may contain private fields; expose only the domain result.
+        data = {k: v for k, v in data.items() if k in ('task', 'reports', 'metrics', 'checks', 'comparisons', 'score', 'issues', 'review_url', 'extraction_runs')}
+        if not validate('TaskResults', data):
+            return JSONResponse(status_code=422, content={**error_envelope('INVALID_STATE', 'Task metadata is incomplete; host registration is required'), 'task_id': task_id, 'revision': revision})
+        return envelope(task_id, revision, data)
+
+    async def execute_write(task_id, token, tool, key, body):
+        try:
+            return await run_in_threadpool(app.state.write_service.run, task_id, token, tool, key, body)
+        except ParseError as exc:
+            return JSONResponse(status_code=exc.status, content=exc.payload)
+        except Exception:
+            return JSONResponse(status_code=500, content=error_envelope('INTERNAL_ERROR', 'Business operation failed'))
+
+    async def execute_read(task_id, token, tool, body):
+        try:
+            return await run_in_threadpool(app.state.write_service.read, task_id, token, tool, body)
+        except ParseError as exc:
+            return JSONResponse(status_code=exc.status, content=exc.payload)
+        except Exception:
+            return JSONResponse(status_code=500, content=error_envelope('INTERNAL_ERROR', 'Read operation failed'))
+
+    @app.get('/api/tasks/{task_id}/score')
+    @app.get('/api/tasks/{task_id}/rulebook')
+    @app.post('/api/tasks/{task_id}/validate')
+    async def read_route(task_id: str, request: Request):
+        authorization = request.headers.get('authorization', '')
+        token = authorization[7:] if authorization.lower().startswith('bearer ') else None
+        endpoint = request.url.path.rsplit('/', 1)[1]
+        try:
+            body = await request.json() if endpoint == 'validate' else {}
+        except Exception:
+            body = None
+        tool = {'score': 'calculate_score', 'rulebook': 'get_rulebook', 'validate': 'validate_metrics'}[endpoint]
+        return await execute_read(task_id, token, tool, body)
+
+    @app.post('/api/tasks/{task_id}/exports')
+    @app.post('/api/tasks/{task_id}/extract')
+    @app.post('/api/tasks/{task_id}/compare')
+    @app.post('/api/tasks/{task_id}/checks')
+    async def write_route(task_id: str, request: Request):
+        authorization = request.headers.get('authorization', '')
+        token = authorization[7:] if authorization.lower().startswith('bearer ') else None
+        tool = {'extract': 'extract_metrics', 'compare': 'compare_years', 'checks': 'save_check_proposals', 'exports': 'export_analysis'}[request.url.path.rsplit('/', 1)[1]]
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+        return await execute_write(task_id, token, tool, request.headers.get('idempotency-key'), body)
+
     @app.get("/api/tasks/{task_id}/results")
-    def get_task_results(task_id: str, x_agent_token: str | None = Header(default=None)):
+    def get_task_results(task_id: str, request: Request, x_agent_token: str | None = Header(default=None)):
+        authorization = request.headers.get('authorization', '')
+        if authorization.lower().startswith('bearer '):
+            x_agent_token = authorization[7:]
         if authorized_task(task_id, x_agent_token) is None:
             return JSONResponse(status_code=403,
                                 content=error_envelope("FORBIDDEN", "agent token mismatch"))
@@ -110,13 +194,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if rec is None:
             return JSONResponse(status_code=404,
                                 content=error_envelope("NOT_FOUND", "task not found"))
-        return {
-            "ok": True,
-            "data": rec.results,
-            "error": None,
-            "task_id": task_id,
-            "revision": rec.revision,
-        }
+        try:
+            return current_results(task_id, x_agent_token)
+        except ParseError as exc:
+            return JSONResponse(status_code=exc.status, content=exc.payload)
 
     async def execute_parse(task_id, token, key, body):
         try:
@@ -158,6 +239,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not isinstance(args, dict):
             return JSONResponse(status_code=400,
                                 content=error_envelope("INVALID_INPUT", "arguments must be an object"))
+        if not isinstance(tool, str):
+            return JSONResponse(status_code=422, content=error_envelope('INVALID_INPUT', 'Tool must be a string'))
         if tool not in settings.allowed_agent_tools:
             return JSONResponse(status_code=403,
                                 content=error_envelope("FORBIDDEN", "tool not in whitelist"))
@@ -167,16 +250,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                 content=error_envelope("INVALID_INPUT", "command or task_id override rejected"))
         if tool == "parse_report":
             return await execute_parse(bound, x_agent_token, request.headers.get("idempotency-key"), args)
+        if tool in WRITES:
+            return await execute_write(bound, x_agent_token, tool, request.headers.get('idempotency-key'), args)
         if tool == "get_task_results":
-            rec = store.get(bound)
-            return {
-                "ok": True,
-                "data": rec.results,
-                "error": None,
-                "task_id": bound,
-                "revision": rec.revision,
-            }
+            if args:
+                return JSONResponse(status_code=422, content=error_envelope('INVALID_INPUT', 'No arguments allowed'))
+            try:
+                return current_results(bound, x_agent_token)
+            except ParseError as exc:
+                return JSONResponse(status_code=exc.status, content=exc.payload)
         if tool == "search_evidence":
+            if not validate('search_evidence_input', dict(args, task_id=bound)):
+                return JSONResponse(status_code=422, content=error_envelope('INVALID_INPUT', 'Invalid search arguments'))
             query = args.get("query")
             if not isinstance(query, str) or not query.strip():
                 return JSONResponse(status_code=400,
@@ -206,114 +291,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "task_id": bound,
                 "revision": rec.revision if rec else 0,
             }
-        if tool == "extract_metrics":
-            # 输入以服务端任务为准：task_id 来自令牌，revision 来自任务仓储
-            metric_ids = args.get("metric_ids")
-            years = args.get("years")
-            expected_revision = args.get("expected_revision")
-            if (not isinstance(metric_ids, list) or not metric_ids
-                    or not isinstance(years, list) or not years
-                    or not isinstance(expected_revision, int)):
-                return JSONResponse(status_code=400,
-                                    content=error_envelope("INVALID_INPUT",
-                                                           "metric_ids/years/expected_revision required"))
-            rec = store.get(bound)
-            current_revision = rec.revision if rec else 0
-            # 证据归属集合来自服务端、且只限本任务报告范围（模型不能自选）
-            allowed_evidence_ids = {e.evidence_id for e in task_evidence(bound)}
-            deps: ExtractionDeps = app.state.extraction_deps
-            try:
-                result = do_extract(
-                    task_id=bound,
-                    expected_revision=expected_revision,
-                    current_revision=current_revision,
-                    metric_ids=metric_ids, years=years,
-                    allowed_evidence_ids=allowed_evidence_ids,
-                    deps=deps,
-                )
-            except RevisionChanged:
-                return JSONResponse(status_code=409,
-                                    content={**error_envelope("REVISION_CONFLICT",
-                                                              "expected_revision does not match current task revision",
-                                                              retryable=True),
-                                             "task_id": bound, "revision": current_revision})
-            # 提取产物按 record_id 登记到服务端仓储，供 compare_years 取用
-            record_store: RecordStore = app.state.records
-            for r in result.records:
-                record_store.add(r["record_id"], r)
-            return {
-                "ok": True,
-                "data": result.to_dict(),
-                "error": None,
-                "task_id": bound,
-                "revision": current_revision,
-            }
-        if tool == "compare_years":
-            older_id = args.get("older_record_id")
-            newer_id = args.get("newer_record_id")
-            expected_revision = args.get("expected_revision")
-            if (not isinstance(older_id, str) or not isinstance(newer_id, str)
-                    or not isinstance(expected_revision, int)):
-                return JSONResponse(status_code=400,
-                                    content=error_envelope("INVALID_INPUT",
-                                                           "older_record_id/newer_record_id/expected_revision required"))
-            rec = store.get(bound)
-            current_revision = rec.revision if rec else 0
-            if expected_revision != current_revision:
-                return JSONResponse(status_code=409,
-                                    content={**error_envelope("REVISION_CONFLICT",
-                                                              "revision mismatch", retryable=True),
-                                             "task_id": bound, "revision": current_revision})
-            record_store: RecordStore = app.state.records
-            older, newer = record_store.get(older_id), record_store.get(newer_id)
-            # 归属隔离：两条记录都必须存在且属于当前令牌绑定的任务
-            if (older is None or newer is None or
-                    older.get("task_id") != bound or newer.get("task_id") != bound):
-                return JSONResponse(status_code=404,
-                                    content=error_envelope("NOT_FOUND", "record not found in task scope"))
-            comparison = do_compare(older, newer)
-            # 记录到任务视图（导出/页面展示用；含指标与年度标签）
-            app.state.comparisons_by_task.setdefault(bound, []).append({
-                "metric_id": newer.get("metric_id"),
-                "older_year": older.get("metric_year"),
-                "newer_year": newer.get("metric_year"),
-                **comparison,
-            })
-            return {
-                "ok": True,
-                "data": comparison,
-                "error": None,
-                "task_id": bound,
-                "revision": current_revision,
-            }
-        if tool == "get_rulebook":
-            rec = store.get(bound)
-            return {
-                "ok": True,
-                "data": app.state.rulebook,
-                "error": None,
-                "task_id": bound,
-                "revision": rec.revision if rec else 0,
-            }
-        if tool == "calculate_score":
-            # 检查项以服务端仓储为准；task_id 来自令牌，模型不能自选
-            checks = app.state.checks.get(bound, [])
-            rec = store.get(bound)
-            current_revision = rec.revision if rec else 0
-            try:
-                result = do_score(checks, app.state.rulebook)
-            except Exception as ex:
-                return JSONResponse(status_code=422,
-                                    content={**error_envelope("INVALID_CHECKS", str(ex)),
-                                             "task_id": bound, "revision": current_revision})
-            result["revision"] = current_revision
-            return {
-                "ok": True,
-                "data": result,
-                "error": None,
-                "task_id": bound,
-                "revision": current_revision,
-            }
+        if tool in {'get_rulebook', 'calculate_score', 'validate_metrics'}:
+            return await execute_read(bound, x_agent_token, tool, args)
         return JSONResponse(status_code=403,
                             content=error_envelope("FORBIDDEN", "tool not in whitelist"))
 
@@ -322,7 +301,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                           x_agent_token: str | None = Header(default=None),
                           x_user: str | None = Header(default=None)):
         """人工复核只走用户会话；Agent 令牌一律无权调用。"""
-        if x_agent_token:
+        if x_agent_token or request.headers.get('authorization', '').lower().startswith('bearer '):
             return JSONResponse(status_code=403,
                                 content=error_envelope("FORBIDDEN", "agent token cannot review"))
         if not x_user and not request.cookies.get("esg_user"):
@@ -333,7 +312,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return JSONResponse(status_code=400,
                                 content=error_envelope("INVALID_INPUT", "invalid form or JSON"))
         try:
-            expected_revision = int(body.get("expected_revision", -1))
+            raw_revision = body.get("expected_revision", -1)
+            if isinstance(raw_revision, bool) or ("application/json" in request.headers.get("content-type", "") and type(raw_revision) is not int):
+                raise ValueError('revision must be an integer')
+            expected_revision = int(raw_revision)
         except (TypeError, ValueError):
             return JSONResponse(status_code=400, content=error_envelope(
                 "INVALID_INPUT", "expected_revision required"))
@@ -362,7 +344,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     rstore.create_task(task_id, revision=revision)
                 else:
                     rstore._tasks[task_id]["revision"] = revision
+                business = read_business(db, task_id)
+                rstore._events[task_id] = business.get('review', {}).get('events', [])
+                business.pop('score', None)
+                for check in business['checks']:
+                    rstore.put_check(task_id, check)
                 task = do_review(rstore, task_id, cmd, actor=actor, is_agent=False)
+                merged_checks = {c['check_id']: c for c in business['checks']}
+                merged_checks.update(rstore._checks.get(task_id, {}))
+                business['checks'] = list(merged_checks.values())
+                for comparison in business['comparisons']:
+                    comparison['is_current'] = False
+                business['review'] = dict(task=task, events=rstore.audit_events(task_id))
+                save_business(db, task_id, business)
                 db.execute('UPDATE tasks SET revision=? WHERE task_id=?', (task["revision"], task_id))
         except BaseException as ex:
             # 既有复核仓储仍在内存；数据库提交失败时一并恢复其变更。
@@ -399,7 +393,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     def require_user_session(x_user, x_agent_token, request=None):
         """用户路由：Agent 令牌一律无权；支持 header 或本地会话 cookie。"""
-        if x_agent_token:
+        if x_agent_token or (request is not None and request.headers.get('authorization', '').lower().startswith('bearer ')):
             return JSONResponse(status_code=403,
                                 content=error_envelope("FORBIDDEN", "agent token cannot use user route"))
         cookie_user = request.cookies.get("esg_user") if request is not None else None
@@ -418,7 +412,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return HTMLResponse("<h1>404 · 任务不存在</h1>", status_code=404)
         evidence_by_id = {e.evidence_id: e for e in task_evidence(task_id)} if task_id else {}
         checks = app.state.checks.get(task_id, []) if task_id else []
-        records = app.state.records.list_by_task(task_id) if task_id else []
+        comparisons = app.state.comparisons_by_task.get(task_id, [])
+        if task_id and hasattr(store, 'transaction'):
+            with store.transaction() as db:
+                if db.execute('SELECT 1 FROM business_state WHERE task_id=?', (task_id,)).fetchone():
+                    business = read_business(db, task_id)
+                    checks, comparisons = business['checks'], business['comparisons']
+        checks = [c for c in checks if c.get('is_current', True)]
+        comparisons = [c for c in comparisons if c.get('is_current', True)]
+        records = [r for r in app.state.records.list_by_task(task_id) if r.get('is_current', True)] if task_id else []
         try:
             score = do_score(checks, app.state.rulebook) if task_id else None
         except Exception:
@@ -431,7 +433,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             task_view = {
                 "task_id": task_id, "revision": rec.revision,
                 "stage": results.get("stage", "metrics"),
-                "report_ids": results.get("report_ids", []),
+                "report_ids": bound_reports(results),
             }
         response = templates.TemplateResponse(request, "index.html", {
             "task": task_view,
@@ -440,7 +442,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "records": records,
             "checks": checks,
             "score": score,
-            "comparisons": app.state.comparisons_by_task.get(task_id, []),
+            "comparisons": comparisons,
             "runs": list(reversed(app.state.runs.list_for_task(task_id))) if task_id else [],
             "artifacts": artifacts,
             "check_ids": list(ALL_CHECK_IDS),
@@ -475,6 +477,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         meta = artifact_store.get_meta(artifact_id)
         if meta is None:
             return JSONResponse(status_code=404, content=error_envelope("NOT_FOUND", "artifact not found"))
+        actor = x_user or request.cookies.get('esg_user')
+        if meta.get('user_identity') and meta['user_identity'] != 'user:' + actor:
+            return JSONResponse(status_code=404, content=error_envelope('NOT_FOUND', 'artifact not found'))
         content = artifact_store.get_content(artifact_id)
         if content is None:
             return JSONResponse(status_code=404, content=error_envelope("NOT_FOUND", "artifact not found"))
@@ -503,41 +508,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if denied:
             return denied
         body = await _read_submission(request)
+        if 'application/json' not in request.headers.get('content-type', ''):
+            try:
+                body['expected_revision'] = int(body.get('expected_revision', -1))
+            except (TypeError, ValueError):
+                body = None
+        actor = x_user or request.cookies.get('esg_user')
         try:
-            expected_revision = int(body.get("expected_revision", -1))
-        except (TypeError, ValueError):
-            return JSONResponse(status_code=400, content=error_envelope(
-                "INVALID_INPUT", "expected_revision required"))
-        rec = app.state.tasks.get(task_id)
-        if rec is None:
-            return JSONResponse(status_code=404, content=error_envelope("NOT_FOUND", "task not found"))
-        artifact_store: ArtifactStore = app.state.artifacts
-        try:
-            bundle = build_export_bundle(
-                task_id=task_id, expected_revision=expected_revision,
-                current_revision=rec.revision,
-                records=app.state.records.list_by_task(task_id),
-                score=do_score(app.state.checks.get(task_id, []), app.state.rulebook),
-                checks=app.state.checks.get(task_id, []),
-                comparisons=app.state.comparisons_by_task.get(task_id, []),
-                evidence=[e.to_dict() for e in task_evidence(task_id)],
-                rule_version=app.state.rulebook["rule_version"],
-                report_meta=[app.state.report_meta.get(rid, {"report_id": rid})
-                             for rid in (rec.results or {}).get("report_ids", [])],
-                store=artifact_store,
-            )
-        except ExportError as ex:
-            status = 409 if ex.code == "REVISION_CONFLICT" else 422
-            payload = error_envelope(ex.code, str(ex), retryable=(status == 409))
-            payload["task_id"] = task_id
-            return JSONResponse(status_code=status, content=payload)
-        except Exception as ex:
-            payload = error_envelope("EXPORT_FAILED", f"{type(ex).__name__}: {ex}")
-            payload["task_id"] = task_id
-            return JSONResponse(status_code=422, content=payload)
-        app.state.exports_by_task[task_id] = bundle
-        return {"ok": True, "data": bundle, "error": None,
-                "task_id": task_id, "revision": bundle["revision"]}
+            response = await run_in_threadpool(app.state.export_service.run, task_id,
+                'user:' + actor, request.headers.get('idempotency-key') or str(uuid4()), body)
+            app.state.exports_by_task[task_id] = response['data']
+            return response
+        except ParseError as exc:
+            return JSONResponse(status_code=exc.status, content=exc.payload)
+        except Exception:
+            return JSONResponse(status_code=500, content=error_envelope('INTERNAL_ERROR', 'Export failed'))
 
     @app.post("/tasks/{task_id}/agent-runs")
     async def start_agent_run(task_id: str, request: Request,

@@ -252,7 +252,7 @@ def test_api_rejects_limit_over_contract_maximum(tmp_path):
         headers={"X-Agent-Token": "test-token"},
         json={"tool": "search_evidence", "arguments": {"query": "anything", "limit": 21}},
     )
-    assert response.status_code == 400
+    assert response.status_code == 422
     assert response.json()["error"]["code"] == "INVALID_INPUT"
 
 

@@ -2,6 +2,7 @@
 import sys
 from pathlib import Path
 import pytest
+from uuid import uuid4
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend" / "src"))
 
@@ -70,7 +71,7 @@ class TestExtractToolIntegration:
         settings = Settings()
         app = create_app(settings)
         store: InMemoryTaskStore = app.state.tasks
-        store.register_task("task_ext", 3, {"report_ids": ["r1"]})
+        store.register_task("task_ext", 3, {"report_ids": ["r1"], "selected_years": [2024]})
         store.issue_agent_token("task_ext", "tok_ext")
         app.state.evidence = EvidenceStore([
             ev("e_e01", "范围1温室气体排放量 12,341,455.00"),
@@ -78,7 +79,7 @@ class TestExtractToolIntegration:
 
         def stub_model(ctx):
             return [{
-                "report_id": "byd_report", "metric_id": "E01", "metric_year": 2024,
+                "report_id": "r1", "metric_id": "E01", "metric_year": 2024,
                 "raw_value": "12,341,455.00", "value": "12341455",
                 "raw_unit": "吨二氧化碳当量", "canonical_unit": "吨二氧化碳当量",
                 "conversion_rule": None, "denominator": None,
@@ -94,7 +95,7 @@ class TestExtractToolIntegration:
         )
         c = TestClient(app)
         r = c.post("/agent/tool",
-                   headers={"x-agent-token": "tok_ext"},
+                   headers={"x-agent-token": "tok_ext", "Idempotency-Key": str(uuid4())},
                    json={"tool": "extract_metrics",
                          "arguments": {"metric_ids": ["E01"], "years": [2024],
                                        "expected_revision": 3}})
@@ -123,7 +124,7 @@ class TestExtractToolIntegration:
         )
         c = TestClient(app)
         r = c.post("/agent/tool",
-                   headers={"x-agent-token": "tok_ext2"},
+                   headers={"x-agent-token": "tok_ext2", "Idempotency-Key": str(uuid4())},
                    json={"tool": "extract_metrics",
                          "arguments": {"metric_ids": ["E01"], "years": [2024],
                                        "expected_revision": 4}})  # 实际是 5
@@ -154,7 +155,7 @@ class TestCompareToolIntegration:
         app.state.records.add("r_old", self._record("r_old", 2023, "16592592.44"))
         app.state.records.add("r_new", self._record("r_new", 2024, "23552569.28"))
         c = TestClient(app)
-        r = c.post("/agent/tool", headers={"x-agent-token": "tok_cmp"},
+        r = c.post("/agent/tool", headers={"x-agent-token": "tok_cmp", "Idempotency-Key": str(uuid4())},
                    json={"tool": "compare_years",
                          "arguments": {"older_record_id": "r_old",
                                        "newer_record_id": "r_new",
@@ -176,7 +177,7 @@ class TestCompareToolIntegration:
         rec = self._record("r_foreign", 2023, "100"); rec["task_id"] = "other_task"
         app.state.records.add("r_foreign", rec)
         c = TestClient(app)
-        r = c.post("/agent/tool", headers={"x-agent-token": "tok_cmp2"},
+        r = c.post("/agent/tool", headers={"x-agent-token": "tok_cmp2", "Idempotency-Key": str(uuid4())},
                    json={"tool": "compare_years",
                          "arguments": {"older_record_id": "r_foreign",
                                        "newer_record_id": "r_missing",

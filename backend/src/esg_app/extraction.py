@@ -21,7 +21,7 @@ from .metrics import validate_candidates
 @dataclass
 class ExtractionDeps:
     """后端注入的依赖：模型调用替身 + 版本配置。"""
-    model_fn: Callable[[dict], list[dict]]
+    model_fn: Optional[Callable[[dict], list[dict]]]
     extractor_version: str
     model_id: Optional[str]
     prompt_version: Optional[str]
@@ -87,6 +87,13 @@ def extract_metrics(
     }
     raw_candidates = deps.model_fn(ctx) or []
 
+    preflight = validate_candidates(raw_candidates, years, allowed_evidence_ids, set(metric_ids))
+    if preflight.batch_rejected:
+        return ExtractionResult(status="partial", records=[], issues=preflight.issues,
+                                run=ExtractionRun("run_" + uuid.uuid4().hex[:12], deps.extractor_version,
+                                                  deps.model_id, deps.prompt_version, metric_ids, years,
+                                                  {"model_calls": 1, "input_tokens": None, "output_tokens": None}, []))
+
     # 4. 人工确认保护：过滤掉与已确认 (metric_id, year) 冲突的模型候选
     confirmed = confirmed_record_keys or set()
     skipped_manual = False
@@ -130,7 +137,7 @@ def extract_metrics(
                     report_id=None,
                 ))
 
-    status = "completed" if records and not validation.batch_rejected else "partial"
+    status = "completed" if records and not issues and all(r["status"] in ("extracted", "missing_marker") for r in records) else "partial"
     run = ExtractionRun(
         run_id=f"run_{uuid.uuid4().hex[:12]}",
         extractor_version=deps.extractor_version,

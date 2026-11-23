@@ -128,10 +128,11 @@ class TestReviewAndExport:
                      headers={"x-user": "reviewer"},
                      json={"expected_revision": 7})
         art = exp.json()["data"]["artifacts"][0]
-        # 匿名持有合法 URL 也不能下载；浏览器访问首页后靠 cookie 会话下载
+        # 下载身份必须与导出身份相同；首页 cookie 不授予其他身份的产物权限
         assert c.get(art["download_url"]).status_code == 401
         c.get("/")
-        r = c.get(art["download_url"])
+        assert c.get(art["download_url"]).status_code == 404
+        r = c.get(art["download_url"], headers={"x-user": "reviewer"})
         assert r.status_code == 200
         assert r.headers["content-type"].startswith(art["media_type"].split(";")[0])
         assert c.get("/api/artifacts/../secret.pdf").status_code == 404

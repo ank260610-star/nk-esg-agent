@@ -6,6 +6,7 @@ import hashlib
 import json
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -53,7 +54,7 @@ class TestInputGuards:
         r = c.post("/agent/tool", headers={"x-agent-token": "tok_task_sec"},
                    json={"tool": "search_evidence",
                          "arguments": {"query": "温室气体", "limit": bad_limit}})
-        assert r.status_code == 400
+        assert r.status_code == 422
         assert r.json()["error"]["code"] == "INVALID_INPUT"
 
 
@@ -149,6 +150,10 @@ class TestAgentScope:
         from esg_app.extraction import ExtractionDeps
         c = _client_with_task("task_A", report_ids=["rpt_A"])
         app = c.app
+        with app.state.tasks.transaction() as db:
+            import json
+            db.execute('UPDATE tasks SET results=? WHERE task_id=?',
+                       (json.dumps({'report_ids': ['rpt_A'], 'selected_years': [2024]}), 'task_A'))
         app.state.evidence = EvidenceStore([
             Evidence("evA", "rpt_A", 1, None, "text", "本任务"),
             Evidence("evB", "rpt_B", 1, None, "text", "他任务")])
@@ -162,14 +167,14 @@ class TestAgentScope:
 
         app.state.extraction_deps = ExtractionDeps(
             model_fn=model, extractor_version="selfcheck", model_id=None, prompt_version=None)
-        r = c.post("/agent/tool", headers={"x-agent-token": "tok_task_A"},
+        r = c.post("/agent/tool", headers={"x-agent-token": "tok_task_A", "Idempotency-Key": str(uuid4())},
                    json={"tool": "extract_metrics", "arguments": {
                        "metric_ids": ["E01"], "years": [2024], "expected_revision": 7}})
-        assert r.status_code == 200, r.text
+        assert r.status_code == 403, r.text
         assert "evB" not in seen["allowed"], seen["allowed"]
         # 引用任务外证据的候选必须整批拒绝
-        assert not r.json()["data"]["records"]
-        assert any(i["code"] == "EVIDENCE_FOREIGN" for i in r.json()["data"]["issues"])
+        assert r.json()["error"]["code"] == "FOREIGN_EVIDENCE"
+        assert not app.state.records.list_by_task("task_A")
 
 
 class TestTaskScope:

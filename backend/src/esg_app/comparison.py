@@ -83,7 +83,7 @@ def _base_fields(older: dict, newer: dict, status: str, reasons: list[str]) -> d
     }
 
 
-def compare_records(older: dict, newer: dict) -> dict:
+def compare_records(older: dict, newer: dict, *, same_company: bool = False) -> dict:
     """比较两条 MetricRecord，返回契约 ComparisonResult。"""
     reasons: list[str] = []
 
@@ -107,21 +107,21 @@ def compare_records(older: dict, newer: dict) -> dict:
         return _base_fields(older, newer, "not_comparable", reasons)
 
     # 4. 同企业 / 同指标
-    if older.get("report_id") != newer.get("report_id"):
+    if not same_company and older.get("report_id") != newer.get("report_id"):
         reasons.append("DEFINITION_MISMATCH")
     if older.get("metric_id") != newer.get("metric_id"):
         reasons.append("DEFINITION_MISMATCH")
 
     # 5. 单位可换算性
     u_old, u_new = _canonical_unit(older.get("canonical_unit")), _canonical_unit(newer.get("canonical_unit"))
-    if u_old != u_new:
+    if not u_old or not u_new or u_old != u_new:
         reasons.append("UNIT_MISMATCH")
 
     # 6. 强度分母一致性
     d_old, d_new = older.get("denominator"), newer.get("denominator")
     if (d_old is None) != (d_new is None):
         reasons.append("DENOMINATOR_MISMATCH")
-    elif d_old and d_new and _canonical_unit(d_old.get("unit")) != _canonical_unit(d_new.get("unit")):
+    elif d_old and d_new and any(d_old.get(k) != d_new.get(k) for k in ("kind", "currency", "scale", "unit")):
         reasons.append("DENOMINATOR_MISMATCH")
 
     # 7. 边界已核对：boundary_key 都为 None 时不证明一致（纯字符串相同不算）
@@ -131,7 +131,8 @@ def compare_records(older: dict, newer: dict) -> dict:
         reasons.append("BOUNDARY_UNCONFIRMED")
 
     # 8. 方法已核对（method_text 均为空视为未核对）
-    if not older.get("method_text") and not newer.get("method_text"):
+    if (not older.get("method_text") or not newer.get("method_text")
+            or older["method_text"].strip() != newer["method_text"].strip()):
         reasons.append("METHOD_UNCONFIRMED")
 
     # 9. 人工复核状态：首次自动候选默认 needs_review
@@ -139,7 +140,7 @@ def compare_records(older: dict, newer: dict) -> dict:
         reasons.append("RESTATEMENT_UNCONFIRMED")
 
     # 硬阻断项：单位/分母/边界/方法不一致 → not_comparable
-    hard = {"UNIT_MISMATCH", "DENOMINATOR_MISMATCH"}
+    hard = {"UNIT_MISMATCH", "DENOMINATOR_MISMATCH", "DEFINITION_MISMATCH"}
     if any(r in reasons for r in hard):
         return _base_fields(older, newer, "not_comparable", reasons)
 
@@ -156,7 +157,15 @@ def compare_records(older: dict, newer: dict) -> dict:
 
     # 通过全部门槛 → comparable，计算同比
     result = _base_fields(older, newer, "comparable", reasons)
-    result["delta"] = str(new_v - old_v)
+    # Values are in canonical_unit; convert the newer value into the older unit
+    # before subtracting. Unit aliases alone do not make kWh equal to MWh.
+    energy_scale = {"mwh": Decimal("1"), "兆瓦时": Decimal("1"),
+                    "kwh": Decimal("0.001"), "千瓦时": Decimal("0.001")}
+    old_unit = older["canonical_unit"].strip().lower()
+    new_unit = newer["canonical_unit"].strip().lower()
+    if old_unit in energy_scale and new_unit in energy_scale:
+        new_v = new_v * energy_scale[new_unit] / energy_scale[old_unit]
+    result["delta"] = format(new_v - old_v, 'f')
     result["percent_change"] = _pct(new_v, old_v)
     result["unit"] = older.get("canonical_unit") or newer.get("canonical_unit")
     return result
