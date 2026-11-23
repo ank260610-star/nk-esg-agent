@@ -6,14 +6,17 @@
 核心算法：
 1. cluster_rows：按 word.top 容差聚类成行
 2. detect_column_anchors：按 x 间隙找列锚点
-3. reconstruct_table：从表头识别年份列 → 每行按 x 就近归入年度列
-4. tables_equivalent：跨页续表须核对表头/年份/单位，不能只看列数
+3. reconstruct_table：独立表头分栏/分块 → 绑定折行标签、单位和年度单元格
+4. extract_footnotes：识别编号定义及文内引用，保留证据关联
+5. tables_equivalent：跨页续表须核对表头/年份/单位，不能只看列数
 """
+
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
 from typing import Optional
+from statistics import median
 
 YEAR_RE = re.compile(r"(19|20)\d{2}\s*年?")
 PURE_YEAR_RE = re.compile(r"^((?:19|20)\d{2})\s*年?$")
@@ -41,6 +44,8 @@ class TableRow:
     label: str = ""
     unit: Optional[str] = None
     values: dict[int, str] = field(default_factory=dict)
+    bbox: Optional[list[float]] = None
+    table_index: int = 0
 
 
 @dataclass
@@ -48,6 +53,7 @@ class TableGrid:
     years: list[int] = field(default_factory=list)
     rows: list[TableRow] = field(default_factory=list)
     header_fingerprint: str = ""
+    issues: list[str] = field(default_factory=list)
 
     @property
     def columns(self) -> list[int]:
@@ -108,43 +114,6 @@ def _year_from_token(text: str) -> Optional[int]:
     return None
 
 
-def _find_header(rows: list[list[Word]]) -> tuple[int, list[tuple[int, float]]]:
-    """找表头行，返回 (表头行索引, [(年份, 该年列x中心), ...])。"""
-    best_idx = -1
-    best_pairs: list[tuple[int, float]] = []
-    for idx, row in enumerate(rows[:6]):  # 表头通常在顶部 6 行
-        pairs: list[tuple[int, float]] = []
-        for w in row:
-            y = _year_from_token(w.text)
-            if y is not None:
-                pairs.append((y, w.xcenter))
-        # 去重同一年份（保留最靠右的），按 x 排序
-        seen: dict[int, float] = {}
-        for y, x in pairs:
-            seen[y] = x
-        pairs = sorted(seen.items(), key=lambda p: p[1])
-        if len(pairs) > len(best_pairs):
-            best_idx = idx
-            best_pairs = pairs
-    return best_idx, best_pairs
-
-
-def _assign_value_to_year(xcenter: float, year_anchors: list[tuple[int, float]]) -> Optional[int]:
-    """按 x 就近把值归入年度列；返回 None 表示不是数据列。"""
-    if not year_anchors:
-        return None
-    # 就近匹配
-    nearest = min(year_anchors, key=lambda p: abs(p[1] - xcenter))
-    # 若距离过大（超过中位列距的一半），视为不在任何年度列
-    xs = sorted(a[1] for a in year_anchors)
-    if len(xs) >= 2:
-        gaps = [xs[i + 1] - xs[i] for i in range(len(xs) - 1)]
-        threshold = sum(gaps) / len(gaps) * 0.9
-        if abs(nearest[1] - xcenter) > threshold:
-            return None
-    return nearest[0]
-
-
 def _looks_like_value(text: str) -> bool:
     """判断是否数值型单元格（含数字/千分位/小数/负号/百分号/占位符）。
 
@@ -167,74 +136,309 @@ def _looks_like_unit(text: str) -> bool:
     t = text.strip()
     if not t or t in ("/", "—", "-"):
         return False
-    unit_markers = ["吨", "兆瓦时", "立方米", "万元", "千元", "元", "千瓦时",
-                    "标万立方米", "升", "万升", "标准煤", "二氧化碳当量", "%",
-                    "CO2", "CO₂", "MWh", "m3", "m³", "tCO", "标万"]
+    unit_markers = [
+        "吨",
+        "兆瓦时",
+        "立方米",
+        "万元",
+        "千元",
+        "元",
+        "千瓦时",
+        "标万立方米",
+        "升",
+        "万升",
+        "标准煤",
+        "二氧化碳当量",
+        "%",
+        "CO2",
+        "CO₂",
+        "MWh",
+        "m3",
+        "m³",
+        "tCO",
+        "标万",
+    ]
     return any(m in t for m in unit_markers)
 
 
-def reconstruct_table(words: list[Word], y_tolerance: float = 3.0) -> TableGrid:
-    """从带坐标的 words 还原成 TableGrid。
+@dataclass
+class Footnote:
+    number: str
+    text: str
+    bbox: list[float]
+    words: list[Word] = field(default_factory=list, repr=False)
 
-    不依赖 extract_tables()，专治文字排版伪表格。
-    """
-    rows = cluster_rows(words, y_tolerance=y_tolerance)
-    header_idx, year_pairs = _find_header(rows)
-    grid = TableGrid(years=[y for y, _ in year_pairs])
 
-    if not year_pairs:
-        # 无年度表头：退化为把整行文本当 row_label 的纯文本证据
-        for row in rows:
-            grid.rows.append(TableRow(label=" ".join(w.text for w in row)))
-        grid.header_fingerprint = "|".join(w.text for w in rows[0]) if rows else ""
-        return grid
-
-    # 表头指纹（用于跨页续表判定）
-    grid.header_fingerprint = "|".join(
-        sorted(f"{y}@{round(x)}" for y, x in year_pairs)
+def footnote_references(text: str) -> list[str]:
+    return list(
+        dict.fromkeys(re.findall(r"(?<=[A-Za-z\u4e00-\u9fff）)])\s*(\d{1,3})(?=\s|$)", text))
     )
 
-    label_x = min(w.x0 for row in rows for w in row)
-    # 单位列 x：表头中没有年份、且紧邻指标列右侧的列
-    unit_x: Optional[float] = None
-    if header_idx >= 0:
-        non_year_in_header = [w for w in rows[header_idx]
-                              if _year_from_token(w.text) is None
-                              and w.text.strip() not in ("指标", "")]
-        if non_year_in_header:
-            unit_x = min(w.xcenter for w in non_year_in_header)
 
-    for ridx, row in enumerate(rows):
-        if ridx == header_idx:
-            continue
-        table_row = TableRow()
-        val_words = []
-        for w in row:
-            y = _assign_value_to_year(w.xcenter, year_pairs)
-            is_year_token = y is not None and PURE_YEAR_RE.match(w.text.strip())
-            # 年份表头 token 跳过
-            if ridx == header_idx:
+def _bbox(words):
+    return [
+        min(w.x0 for w in words),
+        min(w.top for w in words),
+        max(w.x1 for w in words),
+        max(w.bottom for w in words),
+    ]
+
+
+def extract_footnotes(words: list[Word]) -> list[Footnote]:
+    """脚注编号须在原文有引用，且定义编号使用小于正文的字号。"""
+    references = {n for w in words for n in footnote_references(w.text)}
+    lines = cluster_rows(words)
+    starts = []
+    for line in lines:
+        for marker, following in zip(line, line[1:]):
+            size = following.bottom - following.top
+            if (
+                marker.text in references
+                and marker.text.isdigit()
+                and not _looks_like_value(following.text)
+                and 0 <= following.x0 - marker.x1 <= 2 * size
+                and marker.bottom - marker.top < size * 0.95
+            ):
+                starts.append((marker, size))
+    notes = []
+    for marker, size in starts:
+        end = min(
+            (m.top for m, _ in starts if m.top > marker.top and abs(m.x0 - marker.x0) <= 2 * size),
+            default=float("inf"),
+        )
+        right = min(
+            (m.x0 for m, _ in starts if m.x0 > marker.x0 + 2 * size),
+            default=float("inf"),
+        )
+        selected = []
+        last_y = marker.ycenter
+        for line in lines:
+            part = [
+                w
+                for w in line
+                if marker.top - size * 0.25 <= w.top < end
+                and marker.x0 - size * 0.5 <= w.x0 < right
+            ]
+            if not part:
                 continue
-            if y is not None and not is_year_token and _looks_like_value(w.text):
-                # 只有数值/占位词才归入年度数据列
-                val_words.append((y, w))
-            else:
-                # 文字词：指标名 or 单位（永不当数值塞进年度列）
-                if _looks_like_unit(w.text):
-                    table_row.unit = w.text.strip()
-                elif w.text.strip() in ("指标", "单位", "") or PURE_YEAR_RE.match(w.text.strip()):
-                    continue  # 表头残留词跳过
-                elif not table_row.label:
-                    table_row.label = w.text.strip()
-                else:
-                    table_row.label += " " + w.text.strip()
-        for y, w in val_words:
-            # "/" 必须原样保留
-            table_row.values[y] = w.text.strip()
-        if table_row.label or table_row.values:
-            grid.rows.append(table_row)
+            y = min(w.ycenter for w in part)
+            if y - last_y > size * 4 or any(w.bottom - w.top > size * 1.6 for w in part):
+                break
+            if not any(not _looks_like_value(w.text) for w in part):
+                continue
+            selected.extend(part)
+            last_y = max(w.ycenter for w in part)
+        if selected:
+            notes.append(
+                Footnote(marker.text, " ".join(w.text for w in selected), _bbox(selected), selected)
+            )
+    return notes
 
+
+@dataclass
+class _Header:
+    label: Word
+    unit: Optional[Word]
+    years: list[Word]
+
+
+def _headers(lines):
+    found = []
+    for line in lines:
+        labels = [
+            w for w in line if w.text.strip().lower() in {"指标", "indicator", "metric", "item"}
+        ]
+        for i, label in enumerate(labels):
+            end = labels[i + 1].x0 if i + 1 < len(labels) else float("inf")
+            part = [w for w in line if label.x0 < w.x0 < end]
+            years = [w for w in part if _year_from_token(w.text) is not None]
+            if years:
+                unit = next((w for w in part if w.text.strip().lower() in {"单位", "unit"}), None)
+                found.append(_Header(label, unit, years))
+    return found
+
+
+def _cell_text(words):
+    text = ""
+    for w in words:
+        if text and re.search(r"[A-Za-z]$", text) and re.match(r"[A-Za-z]", w.text):
+            text += " "
+        text += w.text
+    return text
+
+
+def _cells(lines, numeric, size, units=None):
+    cells = []
+    for line in lines:
+        if not line:
+            continue
+        y = median(w.ycenter for w in line)
+        nearest = (
+            min(range(len(numeric)), key=lambda i: abs(numeric[i]["y"] - y)) if numeric else None
+        )
+        join = bool(cells) and y - cells[-1]["last_y"] <= size * 2.3
+        if join and nearest is not None and cells[-1]["nearest"] != nearest:
+            prev = cells[-1]
+            aligned = (
+                abs(numeric[nearest]["y"] - y) <= size * 0.6
+                and abs(numeric[prev["nearest"]]["y"] - prev["last_y"]) <= size * 0.6
+            )
+            # 不同单位的数值行可以共用纵向合并的指标格。
+            shared = (
+                units is not None
+                and units[nearest]
+                and units[prev["nearest"]]
+                and units[nearest] != units[prev["nearest"]]
+            )
+            join = shared and not aligned
+        if join:
+            cells[-1]["words"].extend(line)
+            cells[-1].update(last_y=y, nearest=nearest)
+        else:
+            cells.append(dict(words=list(line), last_y=y, nearest=nearest))
+    for c in cells:
+        c["text"] = _cell_text(c["words"])
+        c["y"] = (min(w.ycenter for w in c["words"]) + max(w.ycenter for w in c["words"])) / 2
+    return cells
+
+
+def _closest(cells, y, size, limit):
+    if not cells:
+        return None, False
+    ranked = sorted(cells, key=lambda c: abs(c["y"] - y))
+    if abs(ranked[0]["y"] - y) > limit * size:
+        return None, False
+    ambiguous = (
+        len(ranked) > 1
+        and ranked[0]["text"] != ranked[1]["text"]
+        and abs(abs(ranked[0]["y"] - y) - abs(ranked[1]["y"] - y)) < size * 0.4
+    )
+    return (None, True) if ambiguous else (ranked[0], False)
+
+
+def _parse_block(header, words, size, index, tolerance):
+    pairs = [(_year_from_token(w.text), w.xcenter) for w in header.years]
+    grid = TableGrid(
+        years=[y for y, _ in pairs],
+        header_fingerprint="|".join(f"{y}@{round(x)}" for y, x in pairs),
+    )
+    if len(set(grid.years)) != len(grid.years):
+        grid.issues.append("AMBIGUOUS_YEAR_HEADER")
+        return grid
+    numeric_min = ((header.unit.x1 if header.unit else header.label.x1) + header.years[0].x0) / 2
+    centers = [x for _, x in pairs]
+    gaps = [b - a for a, b in zip(centers, centers[1:])]
+    radius = min(gaps) * 0.6 if gaps else max(size * 4, header.years[0].x1 - header.years[0].x0)
+    labels_by_line = []
+    units_by_line = []
+    numeric = []
+    for line in cluster_rows(words, tolerance):
+        labels = []
+        units = []
+        values = {}
+        duplicates = set()
+        invalid = False
+        count = 0
+        for word in line:
+            if word.xcenter >= numeric_min:
+                if _looks_like_value(word.text):
+                    year, x = min(pairs, key=lambda p: abs(p[1] - word.xcenter))
+                    count += 1
+                    if abs(x - word.xcenter) > radius:
+                        grid.issues.append("UNBOUND_NUMERIC_CELL")
+                    elif year in values:
+                        duplicates.add(year)
+                    else:
+                        values[year] = word.text
+                else:
+                    invalid = True
+            elif header.unit is not None and word.x0 >= header.unit.x0 - size * 0.5:
+                units.append(word)
+            elif header.unit is None and _looks_like_unit(word.text):
+                units.append(word)
+            else:
+                labels.append(word)
+        for year in duplicates:
+            values.pop(year, None)
+            grid.issues.append("DUPLICATE_YEAR_CELL")
+        labels_by_line.append(labels)
+        units_by_line.append(units)
+        if count:
+            numeric.append(
+                dict(
+                    y=median(w.ycenter for w in line),
+                    values=values,
+                    words=line,
+                    unit_words=units,
+                    count=count,
+                )
+            )
+            if invalid:
+                grid.issues.append("NON_NUMERIC_TABLE_CELL")
+    unit_cells = _cells(units_by_line, numeric, size)
+    assigned = [_closest(unit_cells, r["y"], size, 2.5)[0] for r in numeric]
+    label_cells = _cells(
+        labels_by_line, numeric, size, units=[c["text"] if c else None for c in assigned]
+    )
+    for row in numeric:
+        label, ambiguous = _closest(label_cells, row["y"], size, 4)
+        unit, bad_unit = _closest(unit_cells, row["y"], size, 2.5)
+        if label is None:
+            if row["count"] > 1 or row["unit_words"]:
+                grid.issues.append("AMBIGUOUS_ROW_LABEL" if ambiguous else "ROW_LABEL_UNRESOLVED")
+            continue
+        if bad_unit or (header.unit and unit is None):
+            grid.issues.append("AMBIGUOUS_ROW_UNIT" if bad_unit else "ROW_UNIT_UNRESOLVED")
+        source = row["words"] + label["words"] + (unit["words"] if unit else [])
+        grid.rows.append(
+            TableRow(
+                label["text"], unit["text"] if unit else None, row["values"], _bbox(source), index
+            )
+        )
+    if not grid.rows:
+        grid.rows = [TableRow(c["text"]) for c in label_cells]
     return grid
+
+
+def reconstruct_table(words: list[Word], y_tolerance: float = 3.0) -> TableGrid:
+    """按独立表头分栏/分块，再在块内还原，保持原单表返回接口。"""
+    if not words:
+        return TableGrid()
+    size = median(w.bottom - w.top for w in words)
+    lines = cluster_rows(words, y_tolerance)
+    headers = _headers(lines)
+    if not headers:
+        return TableGrid(rows=[TableRow(" ".join(w.text for w in line)) for line in lines])
+    lanes = []
+    for h in sorted(headers, key=lambda h: h.label.x0):
+        if not lanes or abs(lanes[-1][0].label.x0 - h.label.x0) > size * 2:
+            lanes.append([h])
+        else:
+            lanes[-1].append(h)
+    bounds = [
+        (max(w.x1 for h in a for w in h.years) + min(h.label.x0 for h in b)) / 2
+        for a, b in zip(lanes, lanes[1:])
+    ]
+    grids = []
+    for j, lane in enumerate(lanes):
+        left = bounds[j - 1] if j else -float("inf")
+        right = bounds[j] if j < len(bounds) else float("inf")
+        ordered = sorted(lane, key=lambda h: h.label.ycenter)
+        for i, h in enumerate(ordered):
+            end = ordered[i + 1].label.ycenter if i + 1 < len(ordered) else float("inf")
+            part = [
+                w
+                for w in words
+                if left <= w.xcenter < right
+                and h.label.ycenter + y_tolerance < w.ycenter < end - y_tolerance
+            ]
+            grids.append(_parse_block(h, part, size, len(grids), y_tolerance))
+    return TableGrid(
+        years=list(dict.fromkeys(y for g in grids for y in g.years)),
+        rows=[r for g in grids for r in g.rows],
+        header_fingerprint=";".join(g.header_fingerprint for g in grids),
+        issues=list(dict.fromkeys(c for g in grids for c in g.issues)),
+    )
 
 
 def tables_equivalent(a: TableGrid, b: TableGrid) -> bool:
@@ -270,13 +474,15 @@ def detect_value_conflicts(grid: TableGrid) -> list[dict]:
         if len(values) < 2:
             continue
         distinct = sorted(set(values))
-        out.append({
-            "code": "CROSS_REF_CONFLICT" if len(distinct) > 1 else "CROSS_REF_AGREE",
-            "row_label": label,
-            "year": year,
-            "values": distinct,
-            "occurrences": len(values),
-        })
+        out.append(
+            {
+                "code": "CROSS_REF_CONFLICT" if len(distinct) > 1 else "CROSS_REF_AGREE",
+                "row_label": label,
+                "year": year,
+                "values": distinct,
+                "occurrences": len(values),
+            }
+        )
     return out
 
 

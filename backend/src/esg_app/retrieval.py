@@ -139,20 +139,40 @@ def search_evidence(store: EvidenceStore, query: str,
                        "message": "metric dictionary failed to load; using minimal fallback aliases",
                        "report_id": None, "pdf_page": None, "record_id": None})
 
-    # 脚注关联：若结果含目标指标证据，补上对应脚注（额外附加，不受 limit 限制）
+    # 显式引用优先；同页匹配表格的脚注也随原文命中返回。
+    selected_body = [e for e in top if e.kind != "footnote"]
+    selected_notes = [e for e in top if e.kind == "footnote"]
+    present = {e.evidence_id for e in top}
+    contexts = {(e.report_id, e.pdf_page) for e in top if e.kind != "footnote"}
+    parents = [e for _, e in scored if e.kind != "footnote" and (e.report_id, e.pdf_page) in contexts]
+    for parent in parents:
+        for linked_id in parent.linked_evidence_ids:
+            note = store.by_id.get(linked_id)
+            if (note is not None and note.kind == "footnote" and note.report_id == parent.report_id
+                    and linked_id not in present):
+                selected_notes.append(note)
+                present.add(linked_id)
+    # 兼容旧证据的词典关联，限定同一报告与命中页面，避免跨报告串位。
     if metric_id:
         notes = FOOTNOTE_LINK_RULES.get(metric_id, [])
-        if any(alias_recall(e.text, metric_id) for e in top if e.kind != "footnote"):
-            present = {x.evidence_id for x in top}
-            for e in store.items:
-                if e.kind == "footnote" and any(_normalize(n) in _normalize(e.text) for n in notes):
-                    if e.evidence_id not in present:
-                        top.append(e)
-                        present.add(e.evidence_id)
+        for e in store.items:
+            if (e.kind == "footnote" and (e.report_id, e.pdf_page) in contexts
+                    and any(_normalize(n) in _normalize(e.text) for n in notes)
+                    and e.evidence_id not in present):
+                selected_notes.append(e)
+                present.add(e.evidence_id)
+
+    # 正文已占满 20 个名额时仍须给关联脚注留位，至少保留首条正文。
+    note_budget = 20 - min(1, len(selected_body))
+    notes = selected_notes[:note_budget]
+    top = selected_body[:20 - len(notes)] + notes
+    if len(selected_body) + len(selected_notes) > 20:
+        issues.append({"code": "EVIDENCE_RESULT_LIMIT", "message": "result limit reached; refine the query",
+                       "report_id": None, "pdf_page": None, "record_id": None})
 
     if not top:
         issues.append({"code": "NO_EVIDENCE", "message": "no evidence matched query",
                        "report_id": None, "pdf_page": None, "record_id": None})
 
-    # 不再对 top 做 [:limit] 截断——脚注需要保留
+    # 正文与额外脚注共同受契约总数上限 20 约束。
     return {"evidence": top, "issues": issues}

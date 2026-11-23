@@ -184,10 +184,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             limit = args.get("limit", 10)
             # bool 是 int 子类，必须排除；上限防止大结果集拖垮工具入口
             if (not isinstance(limit, int) or isinstance(limit, bool)
-                    or limit < 1 or limit > 100):
+                    or limit < 1 or limit > 20):
                 return JSONResponse(status_code=400,
                                     content=error_envelope("INVALID_INPUT",
-                                                           "limit must be an integer 1..100"))
+                                                           "limit must be an integer 1..20"))
             metric_id = args.get("metric_id")
             if metric_id is not None and not isinstance(metric_id, str):
                 return JSONResponse(status_code=400,

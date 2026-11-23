@@ -9,11 +9,11 @@ from pathlib import Path
 from importlib.metadata import version as package_version
 from uuid import UUID
 
-from .parsing import Word, reconstruct_table
+from .parsing import Word, reconstruct_table, extract_footnotes, footnote_references
 from .parse_repository import token_identity
 from .schemas import make_issue
 
-PARSER_VERSION = f"pdfplumber-{package_version('pdfplumber')}+coord-contract-v1"
+PARSER_VERSION = f"pdfplumber-{package_version('pdfplumber')}+coord-contract-v2"
 MAX_BYTES = 50 * 1024 * 1024
 MAX_PAGES = 300
 
@@ -59,16 +59,22 @@ def parse_pdf(data: bytes) -> dict:
             if not text.strip():
                 pages.append(dict(number=number, text='', rows=[], issue='NO_TEXT_LAYER'))
                 continue
-            rows, issue = [], None
+            rows, notes, binding_issues, issue = [], [], [], None
             try:
                 words = [Word(**{k: w[k] for k in ('text', 'x0', 'x1', 'top', 'bottom')})
                          for w in page.extract_words()]
-                grid = reconstruct_table(words)
-                rows = [dict(label=r.label, unit=r.unit, values=r.values) for r in grid.rows if r.values]
+                notes = extract_footnotes(words)
+                note_words = {w for note in notes for w in note.words}
+                grid = reconstruct_table([w for w in words if w not in note_words])
+                binding_issues = grid.issues
+                rows = [dict(label=r.label, unit=r.unit, values=r.values, bbox=r.bbox,
+                             table_index=r.table_index, footnote_refs=footnote_references(r.label))
+                        for r in grid.rows if r.values]
             except Exception:
                 issue = 'TABLE_PARSE_FAILED'
             # 拆表失败时仍保留已经成功读取的原文，不能静默丢弃整个页面。
-            pages.append(dict(number=number, text=text, rows=rows, issue=issue))
+            pages.append(dict(number=number, text=text, rows=rows, issue=issue, issues=binding_issues,
+                              footnotes=[dict(number=n.number, text=n.text, bbox=n.bbox) for n in notes]))
         return dict(page_count=len(pages), pages=pages)
 
 
@@ -76,27 +82,53 @@ def materialize(report_id: str, digest: str, version: str, parsed: dict) -> tupl
     evidence, issues = [], []
     for page in parsed['pages']:
         number = page['number']
-        if page['issue']:
-            issues.append(make_issue(page['issue'], 'Page could not be fully parsed', report_id, number))
+        page_codes = set()
+        def warn(code):
+            if code not in page_codes:
+                issues.append(make_issue(code, 'Page contains unresolved parsing or cell bindings', report_id, number))
+                page_codes.add(code)
+        for code in ([page['issue']] if page['issue'] else []) + page.get('issues', []):
+            warn(code)
         if not page['text']:
             continue
 
-        def add(kind, text, label=None, year=None):
+        def add(kind, text, label=None, year=None, bbox=None, table_id=None, linked=None):
+            created = []
             # 遵循 Evidence.text 的 20000 字上限；印刷页未知时保持 null。
             for start in range(0, len(text), 20000):
                 identity = f'{report_id}:{digest}:{version}:{number}:{len(evidence)}'
                 evidence.append(dict(
                     evidence_id='ev_' + hashlib.sha256(identity.encode()).hexdigest()[:32],
                     report_id=report_id, pdf_page=number, printed_page=None, kind=kind,
-                    text=text[start:start + 20000], bbox=None, table_id=None,
+                    text=text[start:start + 20000], bbox=bbox, table_id=table_id,
                     row_label=label[:20000] if label is not None else None,
-                    column_year=year, linked_evidence_ids=[],
+                    column_year=year, linked_evidence_ids=list(linked or []),
                     viewer_url=f'/api/reports/{report_id}/pdf#page={number}'))
+                created.append(evidence[-1])
+            return created
 
         add('text', page['text'])
+        notes_by_number = {}
+        for note in page.get('footnotes', []):
+            created = add('footnote', note['text'], bbox=note.get('bbox'))
+            if note['number'] in notes_by_number:
+                # 重号定义保留原文，但不能任意选一个关联。
+                notes_by_number[note['number']] = []
+                warn('AMBIGUOUS_FOOTNOTE_REFERENCE')
+            else:
+                notes_by_number[note['number']] = created
         for row in page['rows']:
+            linked_notes = [e for ref in row.get('footnote_refs', []) for e in notes_by_number.get(ref, [])]
             for year, value in row['values'].items():
-                add('table', f"{row['label']} {year} {value} {row['unit'] or ''}", row['label'], int(year))
+                table_id = f"table_{digest[:12]}_{number}_{row.get('table_index', 0)}"
+                cells = add('table', f"{row['label']} {year} {value} {row['unit'] or ''}",
+                            row['label'], int(year), row.get('bbox'), table_id,
+                            [e['evidence_id'] for e in linked_notes][:100])
+                for note in linked_notes:
+                    links = list(dict.fromkeys(note['linked_evidence_ids'] + [e['evidence_id'] for e in cells]))
+                    if len(links) > 100:
+                        warn('EVIDENCE_LINK_LIMIT')
+                    note['linked_evidence_ids'] = links[:100]
     summary = dict(report_id=report_id, status=('failed' if not evidence else 'partial' if issues else 'parsed'),
         page_count=parsed['page_count'], parsed_pages=sum(bool(p['text']) for p in parsed['pages']),
         evidence_count=len(evidence), issues=issues[:100])
