@@ -1,0 +1,230 @@
+{
+  "rule_version": "disclosure-v0.1",
+  "name": "环境信息披露质量评估 v0.1（项目自建试验规则，非官方评分）",
+  "experimental": true,
+  "target_key": null,
+  "target_selection_status": "needs_review",
+  "status_values": {"met": "1", "partial": "0.5", "not_met": "0"},
+  "checks": [
+    {
+      "check_id": "C01", "dimension": "completeness", "weight": "0.0625",
+      "title": "E01有数值；E02有数值及分母",
+      "subconditions": ["E01有数值", "E02有数值及分母"],
+      "met_anchor": "全部子条件有原文证据满足。",
+      "partial_anchor": "至少一个子条件有证据满足，其余已确认不满足。",
+      "not_met_anchor": "有正面证据确认全部不满足，或人工确认未披露。",
+      "unknown_anchor": "任一必要子条件证据不足、解析失败或冲突；不把未知解释为未满足。",
+      "applicability": "限定所选六指标；N/A 仅允许人工确认并给理由。",
+      "source_refs": [{"title": "项目自建试验规则；具体标准条款未核实", "verification_status": "unverified", "locator": null}]
+    },
+    {
+      "check_id": "C02", "dimension": "completeness", "weight": "0.0625",
+      "title": "说明Scope 3所含类别；说明排除类别/覆盖限制，或明确完整覆盖及依据",
+      "subconditions": ["说明Scope 3所含类别", "说明排除类别/覆盖限制，或明确完整覆盖及依据"],
+      "met_anchor": "全部子条件有原文证据满足。",
+      "partial_anchor": "至少一个子条件有证据满足，其余已确认不满足。",
+      "not_met_anchor": "有正面证据确认全部不满足，或人工确认未披露。",
+      "unknown_anchor": "任一必要子条件证据不足；检索不充分不得判 not_met。",
+      "applicability": "限定所选六指标；N/A 仅允许人工确认并给理由。",
+      "source_refs": [{"title": "项目自建试验规则；具体标准条款未核实", "verification_status": "unverified", "locator": null}]
+    },
+    {
+      "check_id": "C03", "dimension": "completeness", "weight": "0.0625",
+      "title": "E04有总量；有构成/合计口径",
+      "subconditions": ["E04有总量", "有构成/合计口径"],
+      "met_anchor": "全部子条件有原文证据满足。",
+      "partial_anchor": "至少一个子条件有证据满足，其余已确认不满足。",
+      "not_met_anchor": "有正面证据确认全部不满足，或人工确认未披露。",
+      "unknown_anchor": "任一必要子条件证据不足；检索不充分不得判 not_met。",
+      "applicability": "限定所选六指标；N/A 仅允许人工确认并给理由。",
+      "source_refs": [{"title": "项目自建试验规则；具体标准条款未核实", "verification_status": "unverified", "locator": null}]
+    },
+    {
+      "check_id": "C04", "dimension": "completeness", "weight": "0.0625",
+      "title": "E05有数值；E06有数值或解释不披露的原因",
+      "subconditions": ["E05有数值", "E06有数值或解释不披露的原因"],
+      "met_anchor": "全部子条件有原文证据满足。",
+      "partial_anchor": "至少一个子条件有证据满足，其余已确认不满足。",
+      "not_met_anchor": "有正面证据确认全部不满足，或人工确认未披露。",
+      "unknown_anchor": "任一必要子条件证据不足；检索不充分不得判 not_met。",
+      "applicability": "限定所选六指标；N/A 仅允许人工确认并给理由。",
+      "source_refs": [{"title": "项目自建试验规则；具体标准条款未核实", "verification_status": "unverified", "locator": null}]
+    },
+    {
+      "check_id": "Q01", "dimension": "specificity", "weight": "0.05",
+      "title": "已有数值的核心记录均有原文数值；均有可解释单位",
+      "subconditions": ["已有数值的核心记录均有原文数值", "均有可解释单位"],
+      "met_anchor": "全部子条件有原文证据满足。",
+      "partial_anchor": "至少一个子条件有证据满足，其余已确认不满足。",
+      "not_met_anchor": "有正面证据确认全部不满足。",
+      "unknown_anchor": "任一必要子条件证据不足。",
+      "applicability": "对已提取的核心记录判质量；N/A 仅人工确认。",
+      "source_refs": [{"title": "项目自建试验规则；具体标准条款未核实", "verification_status": "unverified", "locator": null}]
+    },
+    {
+      "check_id": "Q02", "dimension": "specificity", "weight": "0.05",
+      "title": "每条核心记录对应明确年度",
+      "subconditions": ["每条核心记录对应明确年度"],
+      "met_anchor": "核心记录均有明确年度且与表头一致。",
+      "partial_anchor": null,
+      "not_met_anchor": "有正面证据确认记录无明确年度或年度错配。",
+      "unknown_anchor": "年度证据不足或跨页错位无法判断。",
+      "applicability": "单子条件项无 partial；N/A 仅人工确认。",
+      "source_refs": [{"title": "项目自建试验规则；具体标准条款未核实", "verification_status": "unverified", "locator": null}]
+    },
+    {
+      "check_id": "Q03", "dimension": "specificity", "weight": "0.05",
+      "title": "E02说明分母类型；说明数量级/币种（适用时）",
+      "subconditions": ["E02说明分母类型", "说明数量级/币种（适用时）"],
+      "met_anchor": "全部子条件有原文证据满足。",
+      "partial_anchor": "至少一个子条件有证据满足，其余已确认不满足。",
+      "not_met_anchor": "有正面证据确认全部不满足。",
+      "unknown_anchor": "任一必要子条件证据不足。",
+      "applicability": "适用时判定；N/A 仅人工确认并给理由。",
+      "source_refs": [{"title": "项目自建试验规则；具体标准条款未核实", "verification_status": "unverified", "locator": null}]
+    },
+    {
+      "check_id": "Q04", "dimension": "specificity", "weight": "0.05",
+      "title": "缺失/零/估算有明确标识；有标识解释（全部精确且明确无估算时满足）",
+      "subconditions": ["缺失/零/估算有明确标识", "有标识解释（全部精确且明确无估算时满足）"],
+      "met_anchor": "全部子条件满足（含明确无估算的情形）。",
+      "partial_anchor": "至少一个子条件满足，其余已确认不满足。",
+      "not_met_anchor": "有正面证据确认不满足。",
+      "unknown_anchor": "标识或解释证据不足。",
+      "applicability": "N/A 仅人工确认。",
+      "source_refs": [{"title": "项目自建试验规则；具体标准条款未核实", "verification_status": "unverified", "locator": null}]
+    },
+    {
+      "check_id": "B01", "dimension": "boundary_method", "weight": "0.05",
+      "title": "组织/场所范围明确；重要排除项明确",
+      "subconditions": ["组织/场所范围明确", "重要排除项明确"],
+      "met_anchor": "全部子条件有原文证据满足。",
+      "partial_anchor": "至少一个子条件有证据满足，其余已确认不满足。",
+      "not_met_anchor": "有正面证据确认全部不满足。",
+      "unknown_anchor": "范围/排除项证据不足。",
+      "applicability": "N/A 仅人工确认。",
+      "source_refs": [{"title": "项目自建试验规则；具体标准条款未核实", "verification_status": "unverified", "locator": null}]
+    },
+    {
+      "check_id": "B02", "dimension": "boundary_method", "weight": "0.05",
+      "title": "碳排放核算方法或标准引用；能源/水量定义或方法说明",
+      "subconditions": ["碳排放核算方法或标准引用", "能源/水量定义或方法说明"],
+      "met_anchor": "全部子条件有原文证据满足。",
+      "partial_anchor": "至少一个子条件有证据满足，其余已确认不满足。",
+      "not_met_anchor": "有正面证据确认全部不满足。",
+      "unknown_anchor": "方法/定义证据不足。",
+      "applicability": "N/A 仅人工确认。",
+      "source_refs": [{"title": "项目自建试验规则；具体标准条款未核实", "verification_status": "unverified", "locator": null}]
+    },
+    {
+      "check_id": "B03", "dimension": "boundary_method", "weight": "0.05",
+      "title": "重要排放因子及来源；使用单位换算时给出依据（未换算且单位直接明确可满足此子项）",
+      "subconditions": ["重要排放因子及来源", "使用单位换算时给出依据（未换算且单位直接明确可满足此子项）"],
+      "met_anchor": "全部子条件满足（含未换算且单位明确的情形）。",
+      "partial_anchor": "至少一个子条件满足，其余已确认不满足。",
+      "not_met_anchor": "有正面证据确认不满足。",
+      "unknown_anchor": "因子/换算依据证据不足。",
+      "applicability": "N/A 仅人工确认。",
+      "source_refs": [{"title": "项目自建试验规则；具体标准条款未核实", "verification_status": "unverified", "locator": null}]
+    },
+    {
+      "check_id": "B04", "dimension": "boundary_method", "weight": "0.05",
+      "title": "说明重要估算或明确不使用；说明相应限制/不确定性（明确无估算时满足）",
+      "subconditions": ["说明重要估算或明确不使用", "说明相应限制/不确定性（明确无估算时满足）"],
+      "met_anchor": "全部子条件满足（含明确无估算的情形）。",
+      "partial_anchor": "至少一个子条件满足，其余已确认不满足。",
+      "not_met_anchor": "有正面证据确认不满足。",
+      "unknown_anchor": "估算/不确定性说明证据不足。",
+      "applicability": "N/A 仅人工确认。",
+      "source_refs": [{"title": "项目自建试验规则；具体标准条款未核实", "verification_status": "unverified", "locator": null}]
+    },
+    {
+      "check_id": "Y01", "dimension": "comparability", "weight": "0.05",
+      "title": "E01/E02有历史值；E04/E05/E06有历史值",
+      "subconditions": ["E01/E02有历史值", "E04/E05/E06有历史值"],
+      "met_anchor": "两组历史值均有原文证据。",
+      "partial_anchor": "仅一组有证据，其余已确认不满足。",
+      "not_met_anchor": "有正面证据确认无历史值。",
+      "unknown_anchor": "历史值证据不足。",
+      "applicability": "N/A 仅人工确认。",
+      "source_refs": [{"title": "项目自建试验规则；具体标准条款未核实", "verification_status": "unverified", "locator": null}]
+    },
+    {
+      "check_id": "Y02", "dimension": "comparability", "weight": "0.05",
+      "title": "对比序列单位与分母可对齐；定义一致或提供衔接",
+      "subconditions": ["对比序列单位与分母可对齐", "定义一致或提供衔接"],
+      "met_anchor": "全部子条件有原文证据满足。",
+      "partial_anchor": "至少一个子条件满足，其余已确认不满足。",
+      "not_met_anchor": "有正面证据确认不可对齐且无衔接。",
+      "unknown_anchor": "单位/分母/定义证据不足。",
+      "applicability": "N/A 仅人工确认。",
+      "source_refs": [{"title": "项目自建试验规则；具体标准条款未核实", "verification_status": "unverified", "locator": null}]
+    },
+    {
+      "check_id": "Y03", "dimension": "comparability", "weight": "0.05",
+      "title": "说明边界/方法变化或明确无变化；变化时解释影响（明确无变化时满足）",
+      "subconditions": ["说明边界/方法变化或明确无变化", "变化时解释影响（明确无变化时满足）"],
+      "met_anchor": "全部子条件满足（含明确无变化的情形）。",
+      "partial_anchor": "至少一个子条件满足，其余已确认不满足。",
+      "not_met_anchor": "有正面证据确认不满足。",
+      "unknown_anchor": "变化/无变化说明证据不足。",
+      "applicability": "N/A 仅人工确认。",
+      "source_refs": [{"title": "项目自建试验规则；具体标准条款未核实", "verification_status": "unverified", "locator": null}]
+    },
+    {
+      "check_id": "Y04", "dimension": "comparability", "weight": "0.05",
+      "title": "变化需要重述时提供重述或不重述原因；未变化且说明保持可比时满足",
+      "subconditions": ["变化需要重述时提供重述或不重述原因", "未变化且说明保持可比时满足"],
+      "met_anchor": "全部子条件满足（含未变化且说明可比的情形）。",
+      "partial_anchor": "至少一个子条件满足，其余已确认不满足。",
+      "not_met_anchor": "有正面证据确认不满足。",
+      "unknown_anchor": "重述/可比性说明证据不足。",
+      "applicability": "N/A 仅人工确认。",
+      "source_refs": [{"title": "项目自建试验规则；具体标准条款未核实", "verification_status": "unverified", "locator": null}]
+    },
+    {
+      "check_id": "T01", "dimension": "targets", "weight": "0.0375",
+      "title": "选定核心碳目标有基准年；基准值明确",
+      "subconditions": ["选定核心碳目标有基准年", "基准值明确"],
+      "met_anchor": "全部子条件有原文证据满足。",
+      "partial_anchor": "至少一个子条件满足，其余已确认不满足。",
+      "not_met_anchor": "有正面证据确认全部不满足，或人工确认未披露。",
+      "unknown_anchor": "目标基准证据不足；存在多个冲突目标时不任选最有利项，置 unknown。",
+      "applicability": "目标由用户选择，默认最新报告首个 Scope1+2 量化目标；无目标不自动 N/A。",
+      "source_refs": [{"title": "项目自建试验规则；具体标准条款未核实", "verification_status": "unverified", "locator": null}]
+    },
+    {
+      "check_id": "T02", "dimension": "targets", "weight": "0.0375",
+      "title": "同一目标有目标年；目标值或降幅明确",
+      "subconditions": ["同一目标有目标年", "目标值或降幅明确"],
+      "met_anchor": "全部子条件有原文证据满足。",
+      "partial_anchor": "至少一个子条件满足，其余已确认不满足。",
+      "not_met_anchor": "有正面证据确认全部不满足，或人工确认未披露。",
+      "unknown_anchor": "目标年/目标值证据不足。",
+      "applicability": "同一目标；无目标不自动 N/A。",
+      "source_refs": [{"title": "项目自建试验规则；具体标准条款未核实", "verification_status": "unverified", "locator": null}]
+    },
+    {
+      "check_id": "T03", "dimension": "targets", "weight": "0.0375",
+      "title": "同一目标绝对量/强度类型明确；范围及分母明确",
+      "subconditions": ["同一目标绝对量/强度类型明确", "范围及分母明确"],
+      "met_anchor": "全部子条件有原文证据满足。",
+      "partial_anchor": "至少一个子条件满足，其余已确认不满足。",
+      "not_met_anchor": "有正面证据确认全部不满足，或人工确认未披露。",
+      "unknown_anchor": "目标类型/范围证据不足。",
+      "applicability": "同一目标；无目标不自动 N/A。",
+      "source_refs": [{"title": "项目自建试验规则；具体标准条款未核实", "verification_status": "unverified", "locator": null}]
+    },
+    {
+      "check_id": "T04", "dimension": "targets", "weight": "0.0375",
+      "title": "同一目标有本期进展；进展计算依据可追溯",
+      "subconditions": ["同一目标有本期进展", "进展计算依据可追溯"],
+      "met_anchor": "全部子条件有原文证据满足。",
+      "partial_anchor": "至少一个子条件满足，其余已确认不满足。",
+      "not_met_anchor": "有正面证据确认全部不满足，或人工确认未披露。",
+      "unknown_anchor": "进展/依据证据不足。",
+      "applicability": "同一目标；无目标不自动 N/A。",
+      "source_refs": [{"title": "项目自建试验规则；具体标准条款未核实", "verification_status": "unverified", "locator": null}]
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "nk-esg-harness-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Task 1 thin plugin: whitelist-only get_task_results bridge to local FastAPI",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "check": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.1.0",
+    "@deepseek-ai/dsh-tools": "0.0.1-rc.1",
+    "@deepseek-ai/dsh-session": "0.0.1-rc.5",
+    "@types/node": "^22.20.5",
+    "typescript": "5.9.3"
+  }
+}

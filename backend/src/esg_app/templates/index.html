@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ESG 披露质量评估 · 本地业务页</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>ESG 披露质量评估（本地原型）</h1>
+  <p class="sub">自建试验规则，非官方评分；服务仅绑定 127.0.0.1，不对外发布。</p>
+</header>
+
+{% if not task %}
+<section class="panel"><h2>报告导入</h2>
+  <p>当前还没有任务。请先在业务后端登记报告并创建任务（导入流程由业务仓储完成）。</p>
+</section>
+{% else %}
+<nav>
+  <a href="#import">报告导入</a>
+  <a href="#evidence">指标与证据</a>
+  <a href="#score">评分与未知项</a>
+  <a href="#review">人工复核</a>
+  <a href="#export">导出</a>
+</nav>
+
+<section class="panel" id="import">
+  <h2>① 报告导入与任务</h2>
+  <table><tbody>
+    <tr><th>任务</th><td>{{ task.task_id }}</td></tr>
+    <tr><th>阶段 / 版本</th><td>{{ task.stage or 'metrics' }} / revision {{ task.revision }}</td></tr>
+    <tr><th>报告集</th><td>{{ report_ids|join('、') or '（未登记）' }}</td></tr>
+  </tbody></table>
+  <form method="post" action="/tasks/{{ task.task_id }}/agent-runs" class="run-form">
+    <input type="hidden" name="mode" value="full_evaluation">
+    <input type="hidden" name="expected_revision" value="{{ task.revision }}">
+    <button type="submit">启动智能体任务（用户会话）</button>
+  </form>
+  {% if runs %}
+  <h3>运行状态</h3>
+  <ul>{% for run in runs %}
+    <li>{{ run.run_id[:12] }}… · {{ run.status }}{% if run.answer %} · {{ run.answer }}{% endif %}</li>
+  {% endfor %}</ul>
+  {% endif %}
+</section>
+
+<section class="panel" id="evidence">
+  <h2>② 指标与证据</h2>
+  <table>
+    <thead><tr><th>指标</th><th>年度</th><th>原值</th><th>规范值</th><th>单位</th><th>状态</th><th>证据</th></tr></thead>
+    <tbody>
+      {% for r in records %}
+      <tr>
+        <td>{{ r.metric_id }}</td><td>{{ r.metric_year }}</td>
+        <td>{{ r.raw_value }}</td><td>{{ r.value if r.value is not none else '' }}</td>
+        <td>{{ r.canonical_unit or r.raw_unit or '' }}</td>
+        <td>{{ r.status }}</td>
+        <td>{% for eid in r.evidence_ids %}
+          {% set ev = evidence_by_id.get(eid) %}
+          {% if ev %}<a href="{{ ev.viewer_url }}" target="_blank" rel="noopener">{{ eid }} · PDF p{{ ev.pdf_page }}</a>{% else %}{{ eid }}{% endif %}
+        {% endfor %}</td>
+      </tr>
+      {% else %}<tr><td colspan="7">（尚未提取指标）</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  {% if comparisons %}
+  <h3>跨年比较</h3>
+  <ul>{% for c in comparisons %}
+    <li>{{ c.metric_id }}：{{ c.status }}{% if c.percent_change %} · {{ c.percent_change }}%{% endif %}</li>
+  {% endfor %}</ul>
+  {% endif %}
+  <h3>证据摘录（来自不可信报告原文，已按 HTML 转义）</h3>
+  <ul>{% for ev in evidence_by_id.values() %}
+    <li><a href="{{ ev.viewer_url }}" target="_blank" rel="noopener">{{ ev.evidence_id }} · PDF p{{ ev.pdf_page }}</a>
+      — {{ ev.text }}</li>
+  {% endfor %}</ul>
+</section>
+
+<section class="panel" id="score">
+  <h2>③ 评分与未知项</h2>
+  {% if score %}
+  <p>覆盖率 {{ score.coverage }}｜参考分 {{ score.reference_score }}｜区间
+     [{{ score.lower_bound }}, {{ score.upper_bound }}]｜最终分 {{ score.final_score or '未定' }}</p>
+  <p class="warn">标签：{{ score.label }}。unknown 不计 0 分；N/A 仅人工确认后生效。</p>
+  {% else %}<p>（还没有评分结果）</p>{% endif %}
+  <h3>检查项</h3>
+  <table>
+    <thead><tr><th>检查</th><th>状态</th><th>来源</th><th>说明</th></tr></thead>
+    <tbody>{% for c in checks %}
+      <tr><td>{{ c.check_id }}</td><td>{{ c.status }}</td>
+        <td>{{ c.origin }}</td>
+        <td>{{ c.reason or c.missing_information or '' }}</td></tr>
+    {% else %}<tr><td colspan="4">（尚无检查项）</td></tr>{% endfor %}</tbody>
+  </table>
+</section>
+
+<section class="panel" id="review">
+  <h2>④ 人工复核（独立用户会话）</h2>
+  <p class="warn">智能体 / Agent 令牌无权复核；每次修改必须填写理由，旧 revision 结果自动失效。</p>
+  <form method="post" action="/tasks/{{ task.task_id }}/review" class="review-form">
+    <label>检查项 <select name="check_id">
+      {% for check_id in check_ids %}<option value="{{ check_id }}">{{ check_id }}</option>{% endfor %}
+    </select></label>
+    <label>状态 <select name="new_status">
+      <option value="met">met</option><option value="partial">partial</option>
+      <option value="not_met">not_met</option><option value="unknown">unknown</option>
+    </select></label>
+    <label>理由 <input name="reason" required placeholder="必填：复核依据"></label>
+    <input type="hidden" name="expected_revision" value="{{ task.revision }}">
+    <button type="submit">提交复核</button>
+  </form>
+</section>
+
+<section class="panel" id="export">
+  <h2>⑤ 同版本导出</h2>
+  <form method="post" action="/tasks/{{ task.task_id }}/exports" class="run-form">
+    <input type="hidden" name="expected_revision" value="{{ task.revision }}">
+    <button type="submit">生成 Markdown / CSV / JSON</button>
+  </form>
+  {% if artifacts %}
+  <ul>{% for a in artifacts %}
+    <li><a href="{{ a.download_url }}">{{ a.filename }}</a>
+      · revision {{ a.revision }}
+      {% if a.is_current %}<span class="ok">当前版本</span>{% else %}<span class="warn">已过期</span>{% endif %}
+    </li>
+  {% endfor %}</ul>
+  {% endif %}
+</section>
+{% endif %}
+<footer>本地原型 · 不使用 SDK 开发者工具列表与密钥 · 所有导出与评分绑定任务 revision</footer>
+</body>
+</html>
