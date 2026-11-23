@@ -16,9 +16,9 @@ from esg_app.harness_runner import build_sdk_kwargs, ensure_isolated_paths  # no
 from esg_app.run_jobs import AgentRunStore, RunStatus  # noqa: E402
 
 
-def test_sdk_kwargs_never_falls_back_to_home_dsh():
-    settings = Settings(dsh_home=r"D:\esg-agent-runtime\dsh-home",
-                        workspace=r"D:\esg-agent-runtime\workspace",
+def test_sdk_kwargs_never_falls_back_to_home_dsh(tmp_path):
+    settings = Settings(dsh_home=str(tmp_path / "dsh-home"),
+                        workspace=str(tmp_path / "workspace"),
                         model="deepseek-flash")
     kwargs = build_sdk_kwargs(settings)
     assert kwargs["dsh_home"] == settings.dsh_home

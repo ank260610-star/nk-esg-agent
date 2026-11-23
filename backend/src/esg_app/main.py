@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import os
+from copy import deepcopy
 import re
 from pathlib import Path
 
@@ -16,7 +17,12 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from starlette.concurrency import run_in_threadpool
+
 from .config import Settings
+from .parse_repository import ParseRepository
+from .parse_service import ParseService, ParseError
+from .retrieval import Evidence
 from .repository import InMemoryTaskStore, RecordStore
 from .run_jobs import AgentRunStore
 from .retrieval import EvidenceStore, search_evidence as do_search
@@ -39,10 +45,10 @@ def error_envelope(code: str, message: str, retryable: bool = False) -> dict:
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
-    settings = settings or Settings()
+    settings = settings or Settings(database_path=os.environ.get("ESG_DATABASE_PATH", "data/esg.sqlite3"))
     app = FastAPI(title="ESG Agent Business API", docs_url=None, redoc_url=None)
     app.state.settings = settings
-    app.state.tasks = InMemoryTaskStore()
+    app.state.tasks = ParseRepository(settings.database_path)
     app.state.runs = AgentRunStore()
     # Task 4 记录仓储：extract 产出按 record_id 存，供 compare 取用
     app.state.records = RecordStore()
@@ -64,6 +70,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # 已登记报告的真实文件路径只存在服务端映射，页面只得到 report_id
     app.state.report_paths: dict[str, Path] = {}
     app.state.report_meta: dict[str, dict] = {}
+    app.state.parse_service = ParseService(app.state.tasks, app.state.report_paths)
     # 后台运行：真实的 SDK 宿主由 harness_runner 提供；缺密钥则标记 failed
     app.state.agent_starter = None  # 由测试/运行器注入 (task_id, run_id, mode) -> None
     app.state.comparisons_by_task: dict[str, list] = {}
@@ -87,7 +94,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if rec is None:
             return []
         allowed = set((rec.results or {}).get("report_ids") or [])
-        return [e for e in app.state.evidence.items if e.report_id in allowed]
+        parsed = [Evidence(**e) for e in app.state.tasks.evidence_for_task(task_id)]
+        parsed_reports = {e.report_id for e in parsed}
+        return parsed + [e for e in app.state.evidence.items
+                         if e.report_id in allowed and e.report_id not in parsed_reports]
 
     @app.get("/api/tasks/{task_id}/results")
     def get_task_results(task_id: str, x_agent_token: str | None = Header(default=None)):
@@ -106,6 +116,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "task_id": task_id,
             "revision": rec.revision,
         }
+
+    async def execute_parse(task_id, token, key, body):
+        try:
+            return await run_in_threadpool(app.state.parse_service.run, task_id, token, key, body)
+        except ParseError as exc:
+            return JSONResponse(status_code=exc.status, content=exc.payload)
+        except Exception:
+            return JSONResponse(status_code=500, content=error_envelope("INTERNAL_ERROR", "Parse operation failed"))
+
+    @app.post("/api/tasks/{task_id}/parse")
+    async def parse_report(task_id: str, request: Request):
+        authorization = request.headers.get("authorization", "")
+        token = authorization[7:] if authorization.lower().startswith("bearer ") else None
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+        return await execute_parse(task_id, token, request.headers.get("idempotency-key"), body)
 
     @app.post("/agent/tool")
     async def agent_tool(request: Request, x_agent_token: str | None = Header(default=None)):
@@ -136,6 +164,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if "command" in args or "task_id" in args:
             return JSONResponse(status_code=400,
                                 content=error_envelope("INVALID_INPUT", "command or task_id override rejected"))
+        if tool == "parse_report":
+            return await execute_parse(bound, x_agent_token, request.headers.get("idempotency-key"), args)
         if tool == "get_task_results":
             rec = store.get(bound)
             return {
@@ -315,20 +345,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             target_key=body.get("target_key"),
         )
         rstore: ReviewStore = app.state.review_store
-        # 同步任务仓储 revision：复核仓储未建任务时以主仓储当前 revision 初始化
-        main_rec = app.state.tasks.get(task_id)
-        if task_id not in rstore._tasks and main_rec is not None:
-            rstore.create_task(task_id, revision=main_rec.revision)
+        # 复核与解析以同一数据库版本为准；短事务内不等待模型或网络。
+        mappings = [rstore._tasks, rstore._checks, rstore._scores, rstore._events]
+        snapshots = []
         try:
-            task = do_review(rstore, task_id, cmd, actor=actor, is_agent=False)
-        except ReviewError as ex:
+            with app.state.tasks.transaction() as db:
+                row = db.execute('SELECT revision FROM tasks WHERE task_id=?', (task_id,)).fetchone()
+                if row is None:
+                    raise ReviewError("TASK_NOT_FOUND")
+                revision = row[0]
+                if expected_revision != revision:
+                    raise ReviewError("REVISION_CONFLICT", "task changed; read latest results")
+                snapshots = [(mapping, deepcopy(mapping.get(task_id))) for mapping in mappings]
+                if task_id not in rstore._tasks:
+                    rstore.create_task(task_id, revision=revision)
+                else:
+                    rstore._tasks[task_id]["revision"] = revision
+                task = do_review(rstore, task_id, cmd, actor=actor, is_agent=False)
+                db.execute('UPDATE tasks SET revision=? WHERE task_id=?', (task["revision"], task_id))
+        except BaseException as ex:
+            # 既有复核仓储仍在内存；数据库提交失败时一并恢复其变更。
+            for mapping, snapshot in snapshots:
+                if snapshot is None:
+                    mapping.pop(task_id, None)
+                else:
+                    mapping[task_id] = snapshot
+            if not isinstance(ex, ReviewError):
+                raise
             status = 409 if ex.code == "REVISION_CONFLICT" else 400
-            payload = error_envelope(ex.code, str(ex), retryable=(status == 409))
+            payload = error_envelope(ex.code, str(ex))
             payload["task_id"] = task_id
             return JSONResponse(status_code=status, content=payload)
-        # 主仓储 revision 与复核仓储同步，旧评分失效
-        if main_rec is not None:
-            main_rec.revision = task["revision"]
         score = rstore.get_score(task_id)
         if score is not None:
             score["is_current"] = False
@@ -411,7 +458,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return denied
         if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", report_id):
             return JSONResponse(status_code=404, content=error_envelope("NOT_FOUND", "report not found"))
-        path = app.state.report_paths.get(report_id)
+        path = app.state.report_paths.get(report_id) or app.state.tasks.report_path(report_id)
         if path is None or not Path(path).exists():
             return JSONResponse(status_code=404, content=error_envelope("NOT_FOUND", "report not found"))
         return FileResponse(str(path), media_type="application/pdf")
