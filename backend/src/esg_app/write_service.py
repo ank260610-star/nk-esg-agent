@@ -238,11 +238,12 @@ class WriteService:
                 # Reservation survives worker loss: recovery must reconcile uncertain calls,
                 # never automatically repeat a possibly billed extraction.
                 db.execute(
-                    "INSERT INTO extraction_attempts VALUES(?,?,?,?,?,?,?)",
+                    "INSERT INTO extraction_attempts(attempt_id,task_id,identity,key,request_hash,status,model_calls) VALUES(?,?,?,?,?,?,?)",
                     (attempt, task_id, identity, key, digest, "running", 0),
                 )
         if tool != "extract_metrics":
             return self.commit(task_id, token, tool, key, digest, args)
+        observed_usage = dict(model_calls=0,input_tokens=None,output_tokens=None)
         try:
             allowed = {e.evidence_id: e.report_id for e in evidence}
             evidence_by_id = {e.evidence_id: e for e in evidence}
@@ -269,6 +270,7 @@ class WriteService:
                     "UPDATE extraction_attempts SET model_calls=1 WHERE attempt_id=?",
                     (attempt,),
                 )
+            observed_usage = dict(model_calls=1,input_tokens=None,output_tokens=None)
             result = extract_metrics(
                 task_id,
                 revision,
@@ -279,6 +281,7 @@ class WriteService:
                 deps,
                 confirmed_record_keys=confirmed,
             ).to_dict()
+            observed_usage = result["run"]["usage"]
             if any(i["code"] == "EVIDENCE_FOREIGN" for i in result["issues"]):
                 self.fail(
                     "FOREIGN_EVIDENCE",
@@ -378,7 +381,9 @@ class WriteService:
                 task,
             )
         except BaseException as exc:
+            usage = getattr(exc, 'usage', None) or observed_usage or dict(model_calls=1,input_tokens=None,output_tokens=None)
             with self.repo.transaction() as db:
+                db.execute('UPDATE extraction_attempts SET usage=?,model_calls=? WHERE attempt_id=?', (json.dumps(usage),usage['model_calls'],attempt))
                 db.execute(
                     "UPDATE extraction_attempts SET status='failed' WHERE attempt_id=? AND status='running'",
                     (attempt,),
@@ -635,8 +640,8 @@ class WriteService:
             )
             if attempt:
                 db.execute(
-                    "UPDATE extraction_attempts SET status='completed' WHERE attempt_id=?",
-                    (attempt,),
+                    "UPDATE extraction_attempts SET status='completed',usage=?,model_calls=? WHERE attempt_id=?",
+                    (json.dumps(result["run"]["usage"]),result["run"]["usage"]["model_calls"],attempt),
                 )
         self.app.state.checks[task_id] = state["checks"]
         self.app.state.comparisons_by_task[task_id] = state["comparisons"]

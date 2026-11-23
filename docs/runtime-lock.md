@@ -59,3 +59,7 @@
   因此 Shell/网络拦截依赖 guard，不依赖沙箱（已实测 guard 有效）。
 - 遗留 P1：模型可见工具清单仍含约 30 个内置工具（执行被 guard 拦截但 presentation 层可见），
   若需对模型隐藏用 `ctx.tools.restrict()`（agent scope），闸门 A 未做。
+
+## 2026年11月23日本机接入补充
+
+Mac arm64 实装 SDK 与 runtime 均为 0.2.2rc2，实际启动与新建会话 cwd 检查通过，未调用模型；真实持久对话恢复未验收。当前插件为十工具白名单；作用域 restrict 可用，实装 runtime 无 presentAs 方法。历史 Windows 闸门记录保留，不能作为本次接入的真实模型证据。配置与验证范围见 [接入说明](live-integration.md)。

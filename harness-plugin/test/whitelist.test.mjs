@@ -4,7 +4,7 @@ import http from 'node:http'
 import { isWhitelisted, rejectCommandFields } from '../dist/tools.js'
 import { BusinessClient } from '../dist/client.js'
 
-test('only get_task_results is whitelisted', () => {
+test('domain tools are whitelisted and native tools are denied', () => {
   assert.equal(isWhitelisted('get_task_results'), true)
   assert.equal(isWhitelisted('save_metric_candidates'), false)
   assert.equal(isWhitelisted('bash'), false)
@@ -24,7 +24,7 @@ test('client posts to /agent/tool with no task_id in body', async () => {
     req.on('end', () => {
       seen = { url: req.url, method: req.method, token: req.headers['x-agent-token'], body }
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ ok: true, data: null, error: null, task_id: 'task_A', revision: 7 }))
+      res.end(JSON.stringify({ ok: true, data: {}, error: null, task_id: 'task_A', revision: 7 }))
     })
   })
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
