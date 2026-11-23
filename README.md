@@ -2,7 +2,23 @@
 
 “智金未来”金融智能体挑战赛小组项目。第一版聚焦碳排放、能源、水资源六项指标，提供原文证据、跨年可比性核查、自建披露质量评分与人工复核。
 
-**当前状态：协作骨架及10个工具的可校验接口契约已完成；尚无可运行应用，未完成Harness接入或模型验收。**
+**当前状态：已合入智能体侧模块与业务页面，并补齐 parse_report 服务端解析契约；真实 Harness 整链与第二报告验证尚未完成。**
+
+启动、可信宿主登记与解析验收边界见[parse_report 接入说明](docs/parse-report-acceptance.md)。
+
+## 统一开发入口
+
+业务后端与原前端演示均保留在 `backend/src/esg_app/`，使用不同应用入口：
+
+| 用途 | 启动命令（仓库根目录） | 地址 |
+|---|---|---|
+| 业务服务与服务端页面 | `.venv/bin/python -m uvicorn esg_app.main:create_app --factory --app-dir backend/src --host 127.0.0.1 --port 8000` | http://127.0.0.1:8000 |
+| 三栏前端演示 | `.venv/bin/python -m uvicorn esg_app.frontend_demo:app --app-dir backend/src --host 127.0.0.1 --port 8765` | http://127.0.0.1:8765 |
+
+完整开发环境先运行 `python3 -m venv .venv` 和 `.venv/bin/python -m pip install -e '.[dev]'`。
+Windows 将 `.venv/bin/python` 替换为 `.venv\Scripts\python.exe`。
+前端演示的分析、问答和评分使用预设数据；本地PDF仅预览，复核状态刷新后重置。
+页面详情与独立前端依赖锁见[前端说明](docs/frontend-workbench.md)。
 
 ## 从这里开始
 

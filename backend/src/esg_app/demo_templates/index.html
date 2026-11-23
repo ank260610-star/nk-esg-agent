@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+<svg class="icon-library" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-leaf" viewBox="0 0 24 24"><path d="M20 4C9 2 3 6 5 14c2 6 12 7 15-10Z"/><path d="M4 21 15 10M9 16l-1-5m5 1 5 1"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H6v18h12V7Zm0 0v5h4M9 12h6m-6 4h6"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 4H3v14h4v4l5-4h9ZM7 9h10M7 13h6"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M12 5C9 3 5 3 2 4v15c4-1 7-1 10 1 3-2 6-2 10-1V4c-3-1-7-1-10 1Zm0 0v15"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="m3 3 18 9-18 9 3-9Zm3 9h15"/></symbol>
+  <symbol id="i-expand" viewBox="0 0 24 24"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-11v2"/></symbol>
+</svg>
+<header class="topbar">
+  <a class="brand" href="/" aria-label="澄境首页"><span class="brand-mark"><svg><use href="#i-leaf"/></svg></span><span>澄境<span class="brand-en">CLEAR ESG</span></span></a>
+  <div class="topbar-title">环境披露分析工作台<span class="topbar-divider"></span><span class="muted">让每一个结论，有据可循</span></div>
+  <div class="topbar-actions"><span class="demo-badge">前端演示</span><button class="icon-button" id="help-button" aria-label="使用说明"><svg><use href="#i-info"/></svg></button><span class="avatar" title="本地工作区">本地</span></div>
+</header>
+<div class="workspace">
+  <aside class="sidebar" aria-label="报告与任务">
+    <div class="section-heading"><h2>报告与任务</h2><span class="eyebrow">WORKSPACE</span></div>
+    <button id="upload-button" class="upload-zone"><span class="upload-icon"><svg><use href="#i-plus"/></svg></span><strong>添加企业报告</strong><span>选择或拖入 PDF · 最大 50 MiB</span><small>本地预览，文件不会上传</small></button>
+    <input id="file-input" type="file" accept=".pdf,application/pdf" hidden>
+    <div class="side-label">当前报告 <span id="report-count">01</span></div>
+    <button class="report-card selected" id="sample-report"><span class="file-icon"><svg><use href="#i-file"/></svg><small>PDF</small></span><span class="report-card-copy"><strong>比亚迪</strong><span>2024年度可持续发展报告</span><small>公开样例 · 人工参考数据</small></span><svg class="selected-tick"><use href="#i-check"/></svg></button>
+    <button id="local-report" class="report-card" hidden><span class="file-icon"><svg><use href="#i-file"/></svg></span><span class="report-card-copy"><strong id="local-name"></strong><small>仅本地预览 · 尚未解析</small></span></button>
+    <button class="text-button view-pdf" id="view-report"><svg><use href="#i-book"/></svg>查看报告原件</button>
+    <div class="side-separator"></div>
+    <div class="side-label">任务设置</div>
+    <label class="field-label" for="company">报告企业</label><input id="company" value="比亚迪股份有限公司" readonly>
+    <label class="field-label" for="report-year">报告年度</label><input id="report-year" value="2024" readonly>
+    <fieldset class="year-selector"><legend>分析年份 <span>可多选</span></legend><label><input type="checkbox" name="years" value="2023" checked>2023</label><label><input type="checkbox" name="years" value="2024" checked>2024</label></fieldset>
+    <p class="field-hint">同一份报告，可包含多个年度的数据。</p>
+    <button id="start-analysis" class="button primary full"><svg><use href="#i-leaf"/></svg>运行演示分析</button>
+    <button id="cancel-analysis" class="button secondary full" hidden>取消演示</button>
+    <div class="side-bottom"><span class="local-indicator"></span>本地工作区<span class="version">原型 v0.1</span><p>聚焦碳排放、能源与水资源披露质量</p></div>
+  </aside>
+  <main id="conversation" class="conversation" tabindex="-1">
+    <div class="panel-header"><div><span class="eyebrow">ANALYSIS</span><h1>分析与问答</h1></div><span class="status-pill" id="run-badge">示例已就绪</span></div>
+    <section class="progress-card" aria-label="分析进度"><div class="progress-title"><span><span class="status-dot"></span><strong id="progress-title">从报告，到可追溯的洞察</strong></span><small id="progress-caption">模拟流程 · 未调用模型</small></div><ol id="progress-steps" class="progress-steps"><li>解析报告</li><li>提取指标</li><li>核查披露</li><li>生成结果</li></ol></section>
+    <div class="chat-scroll" id="chat-scroll">
+      <div class="conversation-date">当前会话 · 前端交互演示</div>
+      <article class="assistant-message"><span class="assistant-avatar"><svg><use href="#i-leaf"/></svg></span><div class="message-content"><div class="message-author">澄境分析助手 <span>示例引导</span></div><h2>读懂披露，也看见证据。</h2><p>这里是你的环境信息分析工作区。我们将碳排放、能源与水资源指标，与报告中的证据逐一连接。</p><div class="intro-points"><span><svg><use href="#i-check"/></svg>六项核心环境指标</span><span><svg><use href="#i-check"/></svg>跨年数据与口径核查</span><span><svg><use href="#i-check"/></svg>证据追溯与人工复核</span></div><div class="sample-summary"><div><span class="sample-mark">BYD</span><span><strong>比亚迪 · 2024年度报告</strong><small>2023—2024年 · 六指标人工参考样例</small></span></div><p>右侧已载入示例数据。点击任一指标，查看证据页码并体验复核。</p><button class="text-button" id="intro-evidence">查看碳排放证据 <svg><use href="#i-book"/></svg></button></div><p class="message-footnote">当前为前端原型：数据来自交接文档中的人工参考，分析与问答为预设演示；尚未接入自动提取、真实评分或模型服务。</p></div></article>
+      <div id="messages" role="log" aria-label="会话消息" aria-live="polite"></div>
+    </div>
+    <div class="composer-area"><div class="suggestions"><button data-question="E03为何不能算同比？">E03为何不能算同比？</button><button data-question="分数为何是参考分？">分数为何是参考分？</button><button data-question="碳排放数据在第几页？">碳排放数据在第几页？</button></div><form id="chat-form" class="composer"><label class="sr-only" for="question">提问</label><textarea id="question" rows="2" maxlength="2000" placeholder="就指标、评分或原文证据提问…"></textarea><div class="composer-footer"><span><svg><use href="#i-book"/></svg>仅基于当前演示样例</span><button type="submit" class="send-button" aria-label="发送问题"><svg><use href="#i-send"/></svg></button></div></form><p class="composer-note">示例回答仅用于体验交互，所有正式结论需回到原文核验。</p></div>
+  </main>
+  <aside class="results" aria-label="分析结果">
+    <div class="panel-header"><div><span class="eyebrow">FINDINGS</span><h2>分析结果</h2></div><button id="expand-results" class="icon-button" aria-label="展开结果区" aria-pressed="false"><svg><use href="#i-expand"/></svg></button></div>
+    <div class="results-meta"><span id="result-source">比亚迪 · 2023—2024</span><span id="revision-label">示例 v1</span></div>
+    <div role="tablist" aria-label="结果分类" class="tabs"><button role="tab" id="tab-metrics" aria-controls="metrics-panel" aria-selected="true">核心指标 <span>6</span></button><button role="tab" id="tab-score" aria-controls="score-panel" aria-selected="false" tabindex="-1">披露评分</button><button role="tab" id="tab-report" aria-controls="report-panel" aria-selected="false" tabindex="-1">分析报告</button></div>
+    <div class="results-scroll">
+      <p id="stale-notice" class="notice warning" hidden>记录已修改，旧评分与导出已过期。请更新演示快照。</p>
+      <p id="local-notice" class="notice" hidden>当前文件仅用于本地预览，尚未解析。返回公开样例可继续体验指标与复核。</p>
+      <section id="metrics-panel" role="tabpanel" aria-labelledby="tab-metrics"><div class="result-intro"><h3>六项核心环境指标</h3><p>人工参考值 · 点击记录查看证据与复核</p></div><div class="metric-year-heading"><span>指标 / 单位</span><span id="metric-year-label">2024年</span></div><div id="metric-list"></div><div class="notice subtle"><svg><use href="#i-info"/></svg><span>历史“/”保留为缺失标记；数值变动不直接代表披露质量或经营表现变化。</span></div></section>
+      <section id="score-panel" role="tabpanel" aria-labelledby="tab-score" hidden><div class="result-intro"><h3>披露质量 · 试验规则</h3><p>手算示例，非企业实际评分 · disclosure-v0.1</p></div><div class="score-card"><span class="badge amber">证据不足，待复核</span><div class="score-number"><strong id="score-value">75.00</strong><span>/ 100</span></div><p>参考分 · 非最终得分</p><div class="coverage"><span>证据覆盖率</span><strong id="coverage-value">12.50%</strong></div><progress aria-label="证据覆盖率" id="coverage-bar" max="100" value="12.5">12.5%</progress><div class="score-range">可能区间 <strong id="score-range">9.38—96.88</strong></div></div><p class="field-hint">未知项不按零分计算。不适用项须人工确认；本原型尚不提供正式检查项复核。</p><div class="checks-header"><h3>检查项</h3><span id="checks-summary">2 / 20 已判定（演示）</span></div><div id="check-list"></div></section>
+      <section id="report-panel" role="tabpanel" aria-labelledby="tab-report" hidden><div class="result-intro"><h3>环境披露分析摘要</h3><p>前端演示快照 · 不构成投资建议</p></div><div class="report-block"><h4>资料与范围</h4><p>比亚迪2024年度可持续发展报告；选定年份见任务设置。样例数值来自交接文档，未由本应用提取。</p><h4>待核查线索</h4><p>原始人工参考样例中，Scope 3历史值为“/”；不同年份的边界、方法与强度分母仍需核查，当前不输出普通同比。</p><h4>评分说明</h4><p>20项自建检查采用手算演示状态，并非对比亚迪报告的正式评价。未知项、覆盖率和版本会随快照导出。</p><h4>金融解释边界</h4><p>不根据环境指标变动推断利润、融资成本或企业造假；当前没有接入财务分析。</p></div><div class="export-section"><h3>导出演示快照</h3><p>包含模拟标识、来源、版本与未知项。</p><div class="export-buttons"><button class="button secondary" data-export="md">Markdown</button><button class="button secondary" data-export="csv">CSV</button><button class="button secondary" data-export="json">JSON</button></div></div><div id="review-history" class="report-block"></div></section>
+    </div>
+    <footer class="results-footer"><span id="review-count">12条年度记录 · 待人工复核</span><button id="refresh-snapshot" class="text-button" hidden>更新演示快照</button><button id="export-shortcut" class="text-button"><svg><use href="#i-download"/></svg>导出</button></footer>
+  </aside>
+</div>
+<dialog id="evidence-dialog" class="evidence-dialog" aria-labelledby="evidence-title"><div class="drawer-header"><div><span class="eyebrow">SOURCE & REVIEW</span><h2 id="evidence-title">证据与人工复核</h2></div><button class="icon-button" id="close-evidence" aria-label="关闭证据面板"><svg><use href="#i-close"/></svg></button></div><div class="drawer-body"><div class="evidence-meta"><span class="badge green" id="evidence-kind">公开样例</span><span id="evidence-pages"></span></div><div class="evidence-year"><label for="review-year">查看年度</label><select id="review-year"></select><span id="record-review-state" class="badge neutral"></span></div><div class="source-summary"><h3 id="evidence-heading"></h3><p id="evidence-summary"></p><small id="evidence-summary-label">人工参考摘要，非PDF逐字引用。请打开原文核对。</small></div><div class="pdf-toolbar"><span id="pdf-location">PDF原件</span><a id="pdf-new-tab" class="text-button" target="_blank" rel="noopener">新窗口查看</a></div><div id="pdf-placeholder" class="pdf-placeholder">正在检查本地PDF…</div><iframe id="pdf-frame" title="报告PDF原件" hidden></iframe><p class="field-hint">若浏览器未跳转，请按上方PDF物理页码手动定位。</p><form id="review-form"><div class="review-heading"><h3>人工复核</h3><span>仅当前页面会话有效</span></div><label class="field-label" for="review-value">原文数值</label><input id="review-value" required maxlength="80" autocomplete="off"><p class="field-hint" id="review-unit"></p><label class="field-label" for="review-reason">修改或确认理由 <span class="required">必填</span></label><textarea id="review-reason" rows="3" required maxlength="1000" placeholder="说明核对了哪一页、为什么修改或确认…"></textarea><p id="review-error" class="form-error" role="alert"></p><button class="button primary full" type="submit">保存演示复核</button><p class="field-hint">保存后将递增演示版本，旧评分和导出失效；刷新页面会重置。</p></form></div></dialog>
+<dialog id="help-dialog" class="help-dialog" aria-labelledby="help-title"><div class="drawer-header"><h2 id="help-title">使用这个原型</h2><button class="icon-button" id="close-help" aria-label="关闭使用说明"><svg><use href="#i-close"/></svg></button></div><div class="help-body"><p>这是本地前端演示，尚未连接Harness、自动解析、模型问答或业务数据库。</p><ol><li>选择公开样例，运行演示分析。</li><li>在右侧查看六指标、评分手算示例与报告。</li><li>点击指标，核对PDF页码并填写复核理由。</li><li>修改后更新演示快照，再导出同版本结果。</li></ol><p>选择自己的PDF只会在浏览器本地预览，不会上传或产生指标。所有演示修改在刷新后重置。</p></div></dialog>
+<div id="toast" role="status" class="toast" hidden></div>
+{% endblock %}
