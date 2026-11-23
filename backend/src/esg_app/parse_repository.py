@@ -1,4 +1,4 @@
-"""解析使用的持久任务、证据和幂等仓储；其他业务模块保持现有实现。"""
+"""任务、解析证据和业务写入使用的持久仓储。"""
 from __future__ import annotations
 
 import hashlib
@@ -53,6 +53,16 @@ class ParseRepository:
             CREATE TABLE IF NOT EXISTS task_parses(
                 task_id TEXT, report_id TEXT, hash TEXT, version TEXT, summary TEXT NOT NULL, evidence TEXT NOT NULL,
                 PRIMARY KEY(task_id, report_id));
+            CREATE TABLE IF NOT EXISTS artifacts(
+                artifact_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, metadata TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS business_state(
+                task_id TEXT PRIMARY KEY, data TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS extraction_attempts(
+                attempt_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, identity TEXT NOT NULL,
+                key TEXT NOT NULL, request_hash TEXT NOT NULL, status TEXT NOT NULL,
+                model_calls INTEGER NOT NULL DEFAULT 0);
+            CREATE UNIQUE INDEX IF NOT EXISTS extraction_active_task
+                ON extraction_attempts(task_id) WHERE status='running';
             CREATE TABLE IF NOT EXISTS idempotency(
                 identity TEXT, task_id TEXT, tool TEXT, key TEXT, request_hash TEXT NOT NULL, response TEXT NOT NULL,
                 PRIMARY KEY(identity, task_id, tool, key));
@@ -120,6 +130,19 @@ class ParseRepository:
     def evidence_for_task(self, task_id: str) -> list[dict]:
         with self.transaction() as db:
             task = db.execute('SELECT results FROM tasks WHERE task_id=?', (task_id,)).fetchone()
-            allowed = set(json.loads(task[0]).get('report_ids', [])) if task else set()
+            allowed = set(bound_reports(json.loads(task[0]))) if task else set()
             return [e for rid, raw in db.execute('SELECT report_id,evidence FROM task_parses WHERE task_id=?', (task_id,))
                     if rid in allowed for e in json.loads(raw)]
+
+
+def read_business(db, task_id):
+    row = db.execute('SELECT data FROM business_state WHERE task_id=?', (task_id,)).fetchone()
+    return json.loads(row[0]) if row else dict(records=[], comparisons=[], checks=[], runs=[], issues=[])
+
+
+def save_business(db, task_id, data):
+    db.execute('INSERT OR REPLACE INTO business_state VALUES(?,?)', (task_id, json.dumps(data)))
+
+
+def bound_reports(results):
+    return results.get('task', results).get('report_ids', [])

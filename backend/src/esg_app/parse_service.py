@@ -10,7 +10,7 @@ from importlib.metadata import version as package_version
 from uuid import UUID
 
 from .parsing import Word, reconstruct_table, extract_footnotes, footnote_references
-from .parse_repository import token_identity
+from .parse_repository import token_identity, bound_reports, read_business, save_business
 from .schemas import make_issue
 
 PARSER_VERSION = f"pdfplumber-{package_version('pdfplumber')}+coord-contract-v2"
@@ -183,7 +183,7 @@ class ParseService:
             revision, results = db.execute('SELECT revision,results FROM tasks WHERE task_id=?', (task_id,)).fetchone()
             if revision != body['expected_revision']:
                 raise ParseError('REVISION_CONFLICT', 409, 'Read the latest task before deciding again', task_id, revision)
-            report_ids = json.loads(results).get('report_ids', [])
+            report_ids = bound_reports(json.loads(results))
         if (not isinstance(report_ids, list) or not 1 <= len(report_ids) <= 2
                 or any(not isinstance(rid, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}', rid)
                        for rid in report_ids) or len(set(report_ids)) != len(report_ids)):
@@ -222,7 +222,7 @@ class ParseService:
             if old:
                 return old
             revision, latest = db.execute('SELECT revision,results FROM tasks WHERE task_id=?', (task_id,)).fetchone()
-            if revision != body['expected_revision'] or json.loads(latest).get('report_ids') != report_ids:
+            if revision != body['expected_revision'] or bound_reports(json.loads(latest)) != report_ids:
                 raise ParseError('REVISION_CONFLICT', 409, 'Task changed while parsing', task_id, revision)
             changed = False
             for rid, digest, path, parsed, summary, evidence in prepared:
@@ -235,6 +235,14 @@ class ParseService:
             summaries = [p[4] for p in prepared]
             summary = dict(status='partial' if any(s['status'] != 'parsed' for s in summaries) else 'parsed',
                            reports=summaries, issues=[i for s in summaries for i in s['issues']][:100])
+            if changed and db.execute('SELECT 1 FROM business_state WHERE task_id=?', (task_id,)).fetchone():
+                state = read_business(db, task_id)
+                for kind in ('records', 'checks', 'comparisons'):
+                    for item in state[kind]:
+                        item['is_current'] = False
+                state.pop('score', None)
+                state.pop('extraction_cache', None)
+                save_business(db, task_id, state)
             revision += int(changed)
             db.execute('UPDATE tasks SET revision=? WHERE task_id=?', (revision, task_id))
             response = dict(ok=True, data=summary, error=None, task_id=task_id, revision=revision)

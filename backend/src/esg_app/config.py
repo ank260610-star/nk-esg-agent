@@ -7,7 +7,8 @@ class Settings:
     host: str = "127.0.0.1"
     port: int = 8000
     # 默认拒绝：只有显式列入的白名单工具名可被 Agent 调用
-    allowed_agent_tools: frozenset[str] = frozenset({"parse_report", "get_task_results", "search_evidence", "extract_metrics", "compare_years", "get_rulebook", "calculate_score"})
+    allowed_agent_tools: frozenset[str] = frozenset({"parse_report", "get_task_results", "search_evidence", "extract_metrics", "compare_years", "get_rulebook", "calculate_score", "save_check_proposals", "validate_metrics", "export_analysis"})
+    max_extraction_model_calls: int = 12
     database_path: str = ":memory:"
     dsh_home: str = ""
     workspace: str = ""

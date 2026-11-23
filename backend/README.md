@@ -1,6 +1,6 @@
 # ESG业务后端
 
-负责PDF登记解析、证据检索、六项指标提取、结构化校验、跨年计算、自建评分、复核和导出。已合入智能体侧模块与业务页面，parse_report 已接入持久事务；其他模块仍有内存仓储与契约缺口，尚未完成真实整链验收。
+负责PDF登记解析、证据检索、六项指标提取、结构化校验、跨年计算、自建评分、复核和导出。已合入智能体侧模块与业务页面，解析、指标、检查、比较、复核与导出已接入持久事务；提取器需配置，真实整链尚未验收。
 
 Python代码统一位于backend/src/esg_app/，依赖配置在根目录pyproject.toml；根目录tests、rules和contracts不变。业务页采用FastAPI/Jinja2；其中harness_runner.py是智能体成员维护的SDK宿主适配，不承担指标提取逻辑。SDK必须在后台执行，不能阻塞接收工具回调的HTTP服务。
 
@@ -28,3 +28,5 @@ Python代码统一位于backend/src/esg_app/，依赖配置在根目录pyproject
 原三栏前端以 `frontend_demo.py` 与 `demo_templates/` 保留，运行 `esg_app.frontend_demo:app`；
 业务服务继续使用 `main.py:create_app --factory` 和 `templates/`，二者不互相覆盖。
 两者当前没有业务API集成，详见[前端说明](../docs/frontend-workbench.md)。
+
+业务写入接口、调用额度和恢复限制见[写入验收说明](../docs/write-tool-acceptance.md)。
