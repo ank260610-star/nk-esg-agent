@@ -1,11 +1,11 @@
 {
-  "source_base_commit": "fd84d51b347249ad1a07fd329820343ef26816ca",
+  "source_base_commit": "4473d92b4a83127197afaa47b22157db0619d2fa",
   "source_files_sha256": {
     "backend/src/esg_app/parsing.py": "63b1644efcf3c85cae9a09791eceb7b401f6abd1df102a85c7e75cca929b9c53",
     "backend/src/esg_app/parse_service.py": "8e23470d40ec593b81fe720d69e65e4cccea86914aaf34f33ddd588a617478bc",
     "backend/src/esg_app/retrieval.py": "06e48e3457f90fa3032fe04ff2fd30ef1d1d1e7e8c8e5c69dbe49bd337b6a5e6"
   },
-  "started_at": "2026-11-23T11:54:03.070637+00:00",
+  "started_at": "2026-11-23T11:57:54.848900+00:00",
   "pdf_sha256": "8dfceabd75452ffaf39b0ffa7a1e841707b586931347819e058ebb343c93b1dd",
   "size_bytes": 21711010,
   "source_url": "https://static.cninfo.com.cn/finalpage/2025-03-25/1222881489.PDF",
@@ -18,7 +18,7 @@
     "httpx": "0.28.1"
   },
   "transport": "ASGI API + real PDF/SQLite; fresh Python process recovery; no model or SDK",
-  "parse_seconds": 3.465,
+  "parse_seconds": 3.38,
   "parse_response": {
     "ok": true,
     "data": {
