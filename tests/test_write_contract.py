@@ -578,3 +578,33 @@ def test_history_capacity_failure_does_not_publish_partial_comparison(tmp_path):
     assert response.status_code == 422
     assert len(state(app)["comparisons"]) == 100
     assert app.state.tasks.get("t1").revision == 3
+
+
+@pytest.mark.parametrize("bad", ["unit", "year"])
+def test_validate_detects_bad_unit_or_evidence_year_without_changing_records(
+    tmp_path, bad
+):
+    app, c = setup(tmp_path)
+    record = rec(
+        metric_id="E01",
+        year=2024,
+        report_id="r1",
+        task_id="t1",
+        evidence_ids=["ev1"],
+        unit="tCO2e",
+    )
+    if bad == "unit":
+        record["raw_unit"] = "MWh"
+    else:
+        app.state.evidence.items[0].column_year = 2023
+    app.state.records.add(record["record_id"], record)
+    before = state(app)["records"]
+    response = c.post(
+        "/api/tasks/t1/validate",
+        headers={"Authorization": "Bearer token"},
+        json=dict(record_ids=[record["record_id"]]),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["status"] == "invalid"
+    assert state(app)["records"] == before
+    assert app.state.tasks.get("t1").revision == 3

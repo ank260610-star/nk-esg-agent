@@ -11,6 +11,7 @@ from jsonschema import Draft202012Validator
 
 from .comparison import compare_records
 from .extraction import extract_metrics
+from .metrics import validate_candidates
 from .parse_repository import (
     read_business,
     save_business,
@@ -656,7 +657,7 @@ class WriteService:
                 task_id,
                 revision,
             )
-        evidence = {e.evidence_id for e in self.evidence(task_id)}
+        evidence = {e.evidence_id: e for e in self.evidence(task_id)}
         with self.repo.transaction() as db:
             revision, task = self.auth(db, task_id, token)
             state = read_business(db, task_id)
@@ -683,7 +684,22 @@ class WriteService:
                     r = by_id[rid]
                     if (
                         not validate("MetricRecord", r)
-                        or not set(r.get("evidence_ids", [])) <= evidence
+                        or not set(r.get("evidence_ids", [])) <= set(evidence)
+                        or r.get("report_id") not in bound_reports(task)
+                        or not validate_candidates(
+                            [r],
+                            task.get("task", task).get("selected_years", []),
+                            set(evidence),
+                        ).accepted
+                        or any(
+                            evidence[eid].report_id != r["report_id"]
+                            or (
+                                evidence[eid].column_year is not None
+                                and evidence[eid].column_year != r["metric_year"]
+                            )
+                            for eid in r.get("evidence_ids", [])
+                            if eid in evidence
+                        )
                     ):
                         issues.append(
                             make_issue(
