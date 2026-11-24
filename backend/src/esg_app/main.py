@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import os
+import json
 from uuid import uuid4
 from copy import deepcopy
 import re
@@ -21,7 +22,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
 from .config import Settings
-from .parse_repository import ParseRepository, read_business, save_business, bound_reports
+from .parse_repository import ParseRepository, read_business, save_business, bound_reports, token_identity
 from .parse_service import ParseService, ParseError
 from .retrieval import Evidence
 from .repository import InMemoryTaskStore, PersistentRecordStore
@@ -47,11 +48,11 @@ def error_envelope(code: str, message: str, retryable: bool = False) -> dict:
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
-    settings = settings or Settings(database_path=os.environ.get("ESG_DATABASE_PATH", "data/esg.sqlite3"))
+    settings = settings or Settings.from_env()
     app = FastAPI(title="ESG Agent Business API", docs_url=None, redoc_url=None)
     app.state.settings = settings
     app.state.tasks = ParseRepository(settings.database_path)
-    app.state.runs = AgentRunStore()
+    app.state.runs = AgentRunStore(app.state.tasks)
     # Task 4 记录仓储：extract 产出按 record_id 存，供 compare 取用
     app.state.records = PersistentRecordStore(app.state.tasks)
     # Task 2 证据仓储：默认空，由 register_report/parse 流程填充
@@ -90,6 +91,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 app.state.review_store._checks[tid] = {c['check_id']: c for c in state['checks']}
                 app.state.review_store._events[tid] = review['events']
 
+    if settings.harness_enabled:
+        from .agent_host import make_agent_starter
+        app.state.agent_starter = make_agent_starter(app)
+
     _pkg = Path(__file__).resolve().parent
     templates = Jinja2Templates(directory=str(_pkg / "templates"))
     app.mount("/static", StaticFiles(directory=str(_pkg / "static")), name="static")
@@ -117,6 +122,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.state.write_service = WriteService(app, task_evidence)
     app.state.export_service = ExportService(app, task_evidence)
+    if settings.extraction_model and os.environ.get('DEEPSEEK_API_KEY', '').strip():
+        from .model_extractor import DeepSeekExtractor, EXTRACTOR_VERSION, PROMPT_VERSION
+        app.state.extraction_deps = ExtractionDeps(
+            DeepSeekExtractor(task_evidence, settings.extraction_model, settings.extraction_timeout, settings.extraction_max_tokens),
+            EXTRACTOR_VERSION, settings.extraction_model, PROMPT_VERSION)
 
     def current_results(task_id, token):
         rec = app.state.tasks.get(task_id)
@@ -126,11 +136,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with app.state.tasks.transaction() as db:
             state = read_business(db, task_id)
             revision, data = app.state.write_service.auth(db, task_id, token)
+            parsed = {rid:(digest,version,json.loads(summary)) for rid,digest,version,summary in db.execute('SELECT report_id,hash,version,summary FROM task_parses WHERE task_id=?',(task_id,))}
+            exported = any(json.loads(raw)['revision']==revision for (raw,) in db.execute('SELECT metadata FROM artifacts WHERE task_id=?',(task_id,)))
         data.update(metrics=state['records'], checks=state['checks'], comparisons=state['comparisons'],
                     extraction_runs=state['runs'], issues=state['issues'], score=state.get('score') if state.get('score', {}).get('revision') == revision else None,
                     review_url=f'/tasks/{task_id}/review')
         if isinstance(data.get('task'), dict):
             data['task']['revision'] = revision
+            if exported:
+                data['task']['stage'] = 'exported'
+            elif state.get('review',{}).get('task',{}).get('revision') == revision:
+                data['task']['stage'] = 'review'
+            elif any(c.get('is_current') for c in state['checks']):
+                data['task']['stage'] = 'checks'
+            elif any(r.get('is_current') for r in state['records']):
+                data['task']['stage'] = 'metrics'
+            elif parsed:
+                data['task']['stage'] = 'parsed'
+        for report in data.get('reports',[]):
+            if report['report_id'] in parsed:
+                digest,version,summary = parsed[report['report_id']]
+                report.update(sha256=digest,parser_version=version,page_count=summary['page_count'],status=summary['status'],issues=summary['issues'])
         # Host registration may contain private fields; expose only the domain result.
         data = {k: v for k, v in data.items() if k in ('task', 'reports', 'metrics', 'checks', 'comparisons', 'score', 'issues', 'review_url', 'extraction_runs')}
         if not validate('TaskResults', data):
@@ -217,8 +243,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             body = None
         return await execute_parse(task_id, token, request.headers.get("idempotency-key"), body)
 
-    @app.post("/agent/tool")
-    async def agent_tool(request: Request, x_agent_token: str | None = Header(default=None)):
+    async def dispatch_agent_tool(request: Request, x_agent_token: str | None = Header(default=None)):
         """Agent 工具统一入口：默认拒绝，只转发契约白名单内的工具名。"""
         store: InMemoryTaskStore = app.state.tasks
         bound = store.task_for_agent_token(x_agent_token)
@@ -235,6 +260,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return JSONResponse(status_code=400,
                                 content=error_envelope("INVALID_INPUT", "payload must be an object"))
         tool = payload.get("tool")
+        request.state.agent_tool_name = tool if isinstance(tool,str) else "invalid"
         args = payload.get("arguments", {})
         if not isinstance(args, dict):
             return JSONResponse(status_code=400,
@@ -295,6 +321,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return await execute_read(bound, x_agent_token, tool, args)
         return JSONResponse(status_code=403,
                             content=error_envelope("FORBIDDEN", "tool not in whitelist"))
+
+    @app.post('/agent/tool')
+    async def agent_tool(request: Request, x_agent_token: str | None = Header(default=None)):
+        response = await dispatch_agent_tool(request, x_agent_token)
+        bound = app.state.tasks.task_for_agent_token(x_agent_token)
+        if bound and hasattr(app.state.tasks,'transaction'):
+            import json
+            payload = json.loads(response.body) if isinstance(response,JSONResponse) else response
+            tool = getattr(request.state,'agent_tool_name','invalid')
+            with app.state.tasks.transaction() as db:
+                db.execute('INSERT INTO agent_tool_calls(identity,task_id,tool,ok,revision,error_code) VALUES(?,?,?,?,?,?)',
+                           (token_identity(x_agent_token),bound,tool,int(payload.get('ok') is True),payload.get('revision'),(payload.get('error') or {}).get('code')))
+        return response
 
     @app.post("/tasks/{task_id}/review")
     async def user_review(task_id: str, request: Request,
@@ -559,8 +598,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         import uuid
 
         # 用户问题作为固定业务模板数据，不把原文直接交给 SDK 命令路由
-        prompt = f"[ESG任务:{task_id}] mode={mode} revision={rec.revision}"
-        run = app.state.runs.create_queued(task_id, session_id=f"sess_{uuid.uuid4().hex[:12]}")
+        import json
+        question = body.get('question','')
+        if not isinstance(question,str) or len(question)>4000:
+            return JSONResponse(status_code=422, content=error_envelope('INVALID_INPUT','Question must be at most 4000 characters'))
+        prompt = json.dumps({'task_id':task_id,'mode':mode,'revision':rec.revision,'user_question':question},ensure_ascii=False)
+        session_id = f"sess_{uuid.uuid4().hex[:12]}"
+        if mode == 'resume':
+            previous = [r for r in app.state.runs.list_for_task(task_id) if r.status.value=='waiting_review']
+            if not previous:
+                return JSONResponse(status_code=422,content=error_envelope('INVALID_STATE','No review-paused session is available to resume'))
+            session_id = previous[-1].session_id
+        try:
+            run = app.state.runs.create_queued(task_id, session_id=session_id)
+        except RuntimeError:
+            return JSONResponse(status_code=409,content={**error_envelope('RUN_BUSY','Task already has an active run'),'task_id':task_id,'revision':rec.revision})
 
         def worker():
             app.state.runs.mark_running(run.run_id)

@@ -85,7 +85,9 @@ def extract_metrics(
         "allowed_evidence_ids": sorted(allowed_evidence_ids),
         "model_id": deps.model_id, "prompt_version": deps.prompt_version,
     }
-    raw_candidates = deps.model_fn(ctx) or []
+    raw_result = deps.model_fn(ctx)
+    usage = getattr(raw_result, 'usage', {"model_calls": 1, "input_tokens": None, "output_tokens": None})
+    raw_candidates = raw_result or []
 
     preflight = validate_candidates(raw_candidates, years, allowed_evidence_ids, set(metric_ids))
     if preflight.batch_rejected:
@@ -115,7 +117,7 @@ def extract_metrics(
         allowed_metric_ids=set(metric_ids),
     )
 
-    issues = list(validation.issues)
+    issues = list(validation.issues) + list(getattr(raw_result, "issues", []))
     if skipped_manual:
         issues.append(make_issue(
             "MANUAL_CONFIRMED_SKIPPED",
@@ -143,7 +145,7 @@ def extract_metrics(
         extractor_version=deps.extractor_version,
         model_id=deps.model_id, prompt_version=deps.prompt_version,
         metric_ids=metric_ids, years=years,
-        usage={"model_calls": 1, "input_tokens": None, "output_tokens": None},
+        usage=usage,
         record_ids=[r["record_id"] for r in records],
     )
     result = ExtractionResult(status=status, records=records, issues=issues, run=run)

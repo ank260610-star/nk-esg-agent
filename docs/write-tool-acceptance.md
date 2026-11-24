@@ -13,7 +13,7 @@
 | 校验指标 | `POST /api/tasks/{id}/validate` | record_ids |
 | 评分、规则、结果 | `GET /api/tasks/{id}/score`、`rulebook`、`results` | 无模型可传的权重或结果 |
 
-这些入口使用任务绑定的 Bearer 令牌；四个写入/导出入口还要求宿主生成的 UUID `Idempotency-Key`。同名领域工具也可通过 `/agent/tool` 的 `X-Agent-Token` 调用；task_id 来自令牌，模型不能覆盖。TS Harness 插件目前仍仅注册 get_task_results，因此本次服务端可达不代表真实 Harness 整链已通过。
+这些入口使用任务绑定的 Bearer 令牌；四个写入/导出入口还要求宿主生成的 UUID `Idempotency-Key`。同名领域工具也可通过 `/agent/tool` 的 `X-Agent-Token` 调用；task_id 来自令牌，模型不能覆盖。十工具插件的后续接入与验证边界见 [真实接入说明](live-integration.md)；服务端可达不代表真实 Harness 整链已通过。
 
 同键同请求精确重放原响应，包括原始 revision 和 usage；同键异请求返回 409。业务失败不保存成功幂等结果。提取调用前和提交前均检查版本；模型期间不持有数据库写事务。相同任务存在提取占用时返回 INVALID_STATE，不重复调用。
 

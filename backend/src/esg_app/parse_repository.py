@@ -53,6 +53,13 @@ class ParseRepository:
             CREATE TABLE IF NOT EXISTS task_parses(
                 task_id TEXT, report_id TEXT, hash TEXT, version TEXT, summary TEXT NOT NULL, evidence TEXT NOT NULL,
                 PRIMARY KEY(task_id, report_id));
+            CREATE TABLE IF NOT EXISTS agent_run_claims(task_id TEXT PRIMARY KEY,run_id TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS agent_runs(
+                run_id TEXT PRIMARY KEY,task_id TEXT NOT NULL,state TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS agent_tool_calls(
+                id INTEGER PRIMARY KEY AUTOINCREMENT, identity TEXT NOT NULL, task_id TEXT NOT NULL,
+                tool TEXT NOT NULL, ok INTEGER NOT NULL, revision INTEGER, error_code TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
             CREATE TABLE IF NOT EXISTS artifacts(
                 artifact_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, metadata TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS business_state(
@@ -60,13 +67,16 @@ class ParseRepository:
             CREATE TABLE IF NOT EXISTS extraction_attempts(
                 attempt_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, identity TEXT NOT NULL,
                 key TEXT NOT NULL, request_hash TEXT NOT NULL, status TEXT NOT NULL,
-                model_calls INTEGER NOT NULL DEFAULT 0);
+                model_calls INTEGER NOT NULL DEFAULT 0,usage TEXT);
             CREATE UNIQUE INDEX IF NOT EXISTS extraction_active_task
                 ON extraction_attempts(task_id) WHERE status='running';
             CREATE TABLE IF NOT EXISTS idempotency(
                 identity TEXT, task_id TEXT, tool TEXT, key TEXT, request_hash TEXT NOT NULL, response TEXT NOT NULL,
                 PRIMARY KEY(identity, task_id, tool, key));
         ''')
+        with self.transaction() as db:
+            if 'usage' not in {row[1] for row in db.execute('PRAGMA table_info(extraction_attempts)')}:
+                db.execute('ALTER TABLE extraction_attempts ADD COLUMN usage TEXT')
 
     @contextmanager
     def transaction(self):

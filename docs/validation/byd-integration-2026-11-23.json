@@ -1,0 +1,253 @@
+{
+  "source_base_commit": "000794f370c67334e49fa78ac0f320f57621c32d",
+  "source_files_sha256": {
+    "backend/src/esg_app/parsing.py": "63b1644efcf3c85cae9a09791eceb7b401f6abd1df102a85c7e75cca929b9c53",
+    "backend/src/esg_app/parse_service.py": "8e23470d40ec593b81fe720d69e65e4cccea86914aaf34f33ddd588a617478bc",
+    "backend/src/esg_app/retrieval.py": "06e48e3457f90fa3032fe04ff2fd30ef1d1d1e7e8c8e5c69dbe49bd337b6a5e6"
+  },
+  "started_at": "2026-11-23T14:34:25.599069+00:00",
+  "pdf_sha256": "8dfceabd75452ffaf39b0ffa7a1e841707b586931347819e058ebb343c93b1dd",
+  "size_bytes": 21711010,
+  "source_url": "https://static.cninfo.com.cn/finalpage/2025-03-25/1222881489.PDF",
+  "parser_version": "pdfplumber-0.11.11+coord-contract-v2",
+  "python": "3.14.6",
+  "dependencies": {
+    "pdfplumber": "0.11.11",
+    "pdfminer.six": "20260107",
+    "fastapi": "0.165.0",
+    "httpx": "0.28.1"
+  },
+  "transport": "ASGI API + real PDF/SQLite; fresh Python process recovery; no model or SDK",
+  "parse_seconds": 3.289,
+  "parse_response": {
+    "ok": true,
+    "data": {
+      "status": "partial",
+      "reports": [
+        {
+          "report_id": "byd_report",
+          "status": "partial",
+          "page_count": 155,
+          "parsed_pages": 155,
+          "evidence_count": 589,
+          "issues": [
+            {
+              "code": "NON_NUMERIC_TABLE_CELL",
+              "message": "Page contains unresolved parsing or cell bindings",
+              "report_id": "byd_report",
+              "pdf_page": 127,
+              "record_id": null
+            },
+            {
+              "code": "ROW_UNIT_UNRESOLVED",
+              "message": "Page contains unresolved parsing or cell bindings",
+              "report_id": "byd_report",
+              "pdf_page": 130,
+              "record_id": null
+            }
+          ]
+        }
+      ],
+      "issues": [
+        {
+          "code": "NON_NUMERIC_TABLE_CELL",
+          "message": "Page contains unresolved parsing or cell bindings",
+          "report_id": "byd_report",
+          "pdf_page": 127,
+          "record_id": null
+        },
+        {
+          "code": "ROW_UNIT_UNRESOLVED",
+          "message": "Page contains unresolved parsing or cell bindings",
+          "report_id": "byd_report",
+          "pdf_page": 130,
+          "record_id": null
+        }
+      ]
+    },
+    "error": null,
+    "task_id": "byd_regression",
+    "revision": 1
+  },
+  "checks": {
+    "parse_success": true,
+    "all_evidence_schema_valid": true,
+    "155_pages": true,
+    "all_pages_readable": true,
+    "first_revision_once": true,
+    "same_key_original_response": true,
+    "different_request_409": true,
+    "cache_no_new_revision": true,
+    "cache_no_duplicate_evidence": true,
+    "old_revision_409": true,
+    "foreign_task_denied": true,
+    "scope3_footnote21_returned": true,
+    "scope3_bidirectional_links": true,
+    "e02_cross_reference_kept": true,
+    "pdf_download_hash": true,
+    "process_restart_original_response": true,
+    "process_restart_revision": true,
+    "process_restart_evidence": true
+  },
+  "metrics": {
+    "E01": {
+      "label": "范围1+范围2温室气体排放量",
+      "expected_page": 127,
+      "unit": "吨二氧化碳当量",
+      "years": {
+        "2023": {
+          "expected": "12341455.00",
+          "match": true,
+          "evidence_ids": [
+            "ev_11bdd727d44db0397ee618ee11ab51ed"
+          ]
+        },
+        "2024": {
+          "expected": "10101826.20",
+          "match": true,
+          "evidence_ids": [
+            "ev_e688f212c033851d9a8a30a808738398"
+          ]
+        }
+      },
+      "raw_values_present": true,
+      "top5_page_hit": true,
+      "label_contaminated": false
+    },
+    "E02": {
+      "label": "温室气体排放密度（范围1+范围2）",
+      "expected_page": 127,
+      "unit": "吨二氧化碳当量/万元营收",
+      "years": {
+        "2023": {
+          "expected": "0.2049",
+          "match": true,
+          "evidence_ids": [
+            "ev_188b9b2af29e132de733c52a73cd9aa3"
+          ]
+        },
+        "2024": {
+          "expected": "0.1300",
+          "match": true,
+          "evidence_ids": [
+            "ev_ac1c3a126cbc7e98f56925f392623c0d"
+          ]
+        }
+      },
+      "raw_values_present": true,
+      "top5_page_hit": true,
+      "label_contaminated": false
+    },
+    "E03": {
+      "label": "范围3温室气体排放量",
+      "expected_page": 127,
+      "unit": "吨二氧化碳当量",
+      "years": {
+        "2023": {
+          "expected": "/",
+          "match": true,
+          "evidence_ids": [
+            "ev_a4b9fd4dfa1186b786d21c8246a0f50c"
+          ]
+        },
+        "2024": {
+          "expected": "3326312.49",
+          "match": true,
+          "evidence_ids": [
+            "ev_3b7452753863b72ed2b519022c3dded1"
+          ]
+        }
+      },
+      "raw_values_present": true,
+      "top5_page_hit": true,
+      "label_contaminated": false
+    },
+    "E04": {
+      "label": "能源总耗量",
+      "expected_page": 125,
+      "unit": "兆瓦时",
+      "years": {
+        "2023": {
+          "expected": "16592592.44",
+          "match": true,
+          "evidence_ids": [
+            "ev_f3708923d8a4cc012d3b87ed2570968b"
+          ]
+        },
+        "2024": {
+          "expected": "23552569.28",
+          "match": true,
+          "evidence_ids": [
+            "ev_b85d943b745e91a9668a4f4cac50293d"
+          ]
+        }
+      },
+      "raw_values_present": true,
+      "top5_page_hit": true,
+      "label_contaminated": false
+    },
+    "E05": {
+      "label": "总取水量",
+      "expected_page": 126,
+      "unit": "立方米",
+      "years": {
+        "2023": {
+          "expected": "73807222",
+          "match": true,
+          "evidence_ids": [
+            "ev_0004afbc955b39fbcfe3286ac0f6da41"
+          ]
+        },
+        "2024": {
+          "expected": "94268627",
+          "match": true,
+          "evidence_ids": [
+            "ev_00964fac952d421e7425d272dabe3c25"
+          ]
+        }
+      },
+      "raw_values_present": true,
+      "top5_page_hit": true,
+      "label_contaminated": false
+    },
+    "E06": {
+      "label": "总耗水量",
+      "expected_page": 126,
+      "unit": "立方米",
+      "years": {
+        "2023": {
+          "expected": "22067452",
+          "match": true,
+          "evidence_ids": [
+            "ev_6eee7624b0703fb8cac301369b850ba3"
+          ]
+        },
+        "2024": {
+          "expected": "55317707",
+          "match": true,
+          "evidence_ids": [
+            "ev_75b0b30442edf7acd37659d38a135ff4"
+          ]
+        }
+      },
+      "raw_values_present": true,
+      "top5_page_hit": true,
+      "label_contaminated": false
+    }
+  },
+  "evidence_count": 589,
+  "evidence_kinds": {
+    "text": 155,
+    "footnote": 18,
+    "table": 416
+  },
+  "summary": {
+    "checks_passed": 18,
+    "checks_total": 18,
+    "raw_metrics": 6,
+    "top5_page_hits": 6,
+    "year_matches": 12,
+    "year_total": 12
+  },
+  "overall_pass": true
+}

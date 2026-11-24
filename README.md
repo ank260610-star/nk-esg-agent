@@ -4,6 +4,8 @@
 
 **当前状态：已合入智能体侧模块与业务页面，并补齐持久解析、业务写入及导出事务；提取器需由后端配置，真实 Harness 整链与第二报告验证尚未完成。**
 
+真实模型与十工具接入、配置及验证边界见[接入说明](docs/live-integration.md)。
+
 业务写入与导出接口、恢复边界见[写入验收说明](docs/write-tool-acceptance.md)。
 
 启动、可信宿主登记与解析验收边界见[parse_report 接入说明](docs/parse-report-acceptance.md)。
