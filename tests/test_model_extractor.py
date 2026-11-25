@@ -191,3 +191,32 @@ def test_unverifiable_model_values_become_unknown_with_evidence_issue(monkeypatc
     assert result[0]["status"] == "unknown" and result[0]["value"] is None
     assert result.issues[0]["code"] == "MODEL_VALUE_UNVERIFIED"
     assert result.usage["input_tokens"] == 123
+
+
+@pytest.mark.parametrize("year,value", [(2023, "0.2049"), (2024, "0.1300")])
+def test_compound_unit_alias_survives_adapter_candidate_validation(monkeypatch, year, value):
+    """Explicit offline candidates exercise both E02 years through the adapter."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "offline-key")
+    raw_unit = "吨二氧化碳当量/万元营收"
+    cited = Evidence(
+        "ev1", "r1", 127, None, "table",
+        f"温室气体排放密度（范围1+范围2） {year} {value} {raw_unit}",
+        column_year=year,
+    )
+    proposed = candidate(
+        metric_id="E02", year=year, value=value,
+        raw_unit=raw_unit, canonical_unit="tCO2e/万元营收",
+        report_id="r1", evidence_ids=["ev1"],
+    )
+    model = DeepSeekExtractor(
+        lambda _: [cited], "deepseek-flash",
+        transport=lambda *_: response([proposed]),
+    )
+    result = model(dict(
+        task_id="t", metric_ids=["E02"], years=[year],
+        allowed_evidence_ids=["ev1"],
+    ))
+    assert result[0]["status"] == "extracted"
+    assert result[0]["raw_value"] == result[0]["value"] == value
+    assert result[0]["evidence_ids"] == ["ev1"]
+    assert result.issues == []
