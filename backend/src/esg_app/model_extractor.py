@@ -240,17 +240,29 @@ def normalized(text):
     return unicodedata.normalize("NFKC", text).casefold()
 
 
+UNIT_ALIASES = (
+    {"tco2e", "吨二氧化碳当量"},
+    {"mwh", "兆瓦时"},
+    {"kwh", "千瓦时"},
+    {"m3", "立方米"},
+)
+
+
+def _canonical_factor(factor):
+    for aliases in UNIT_ALIASES:
+        if factor in aliases:
+            return sorted(aliases)[0]
+    return factor
+
+
 def unit_identity(unit):
     u = "".join(normalized(unit).split())
-    for aliases in (
-        {"tco2e", "吨二氧化碳当量"},
-        {"mwh", "兆瓦时"},
-        {"kwh", "千瓦时"},
-        {"m3", "立方米"},
-    ):
-        if u in aliases:
-            return sorted(aliases)[0]
-    return u
+    # 强度/密度等单位含分母（如 /万元营收）：只对分子做受控别名归一，
+    # 分母原样保留参与比较，避免把不同分母或数量级误判为同一单位。
+    if "/" in u:
+        numerator, denominator = u.split("/", 1)
+        return _canonical_factor(numerator) + "/" + denominator
+    return _canonical_factor(u)
 
 
 def grounded(candidate, evidence):
