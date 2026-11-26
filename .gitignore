@@ -35,3 +35,6 @@ coverage/
 .vscode/
 
 .wheels/
+
+# Local test temp directory (workspace guard requires a project-internal TMP)
+/tmpdir/
