@@ -598,9 +598,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if denied:
             return denied
         actor = x_user or request.cookies.get("esg_user")
+        try:
+            events = audit_events(app, task_id, actor)
+        except ParseError as exc:
+            # 404/403 统一走不含 task_id/revision 的错误信封，避免泄露任务信息。
+            return JSONResponse(status_code=exc.status, content=error_envelope(
+                exc.payload["error"]["code"], exc.payload["error"]["message"]))
         rec = app.state.tasks.get(task_id)
         revision = rec.revision if rec is not None else 0
-        return {"ok": True, "data": {"events": audit_events(app, task_id, actor)},
+        return {"ok": True, "data": {"events": events},
                 "error": None, "task_id": task_id, "revision": revision}
 
     @app.post("/tasks/{task_id}/exports")

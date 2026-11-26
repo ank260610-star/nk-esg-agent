@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from uuid import uuid4
@@ -259,14 +260,58 @@ def test_replay_survives_restart_without_second_write(tmp_path):
     assert restarted.state.tasks.get("t1").revision == 4
 
 
+def _concurrent_reviews(app, bodies_and_keys):
+    """先同时提交全部请求，再等待结果，避免串行 submit().result() 假并发。"""
+    barrier = threading.Barrier(len(bodies_and_keys))
+
+    def run(body, key):
+        client = TestClient(app)
+        barrier.wait()  # 全部线程到齐后一起发出，形成真实重叠
+        return client.post(
+            "/tasks/t1/metric-reviews", json=body,
+            headers={**USER, "Idempotency-Key": key},
+        )
+
+    with ThreadPoolExecutor(max_workers=len(bodies_and_keys)) as pool:
+        futures = [pool.submit(run, body, key) for body, key in bodies_and_keys]
+        return [f.result() for f in futures]
+
+
 def test_concurrent_same_key_commits_once(tmp_path):
+    """同键并发：真正同时提交，只有一次写入，其余重放同一结果。"""
     app, c = setup(tmp_path)
     seed(app, unknown_record(), artifacts=0)
     key = str(uuid4())
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        results = [pool.submit(review, c, key=key).result() for _ in range(2)]
+    # 同一键、同一请求体，6 个请求同时打到服务端
+    results = _concurrent_reviews(app, [(
+        {"action": "confirm", "record_id": "r_E02_2024", "expected_revision": 3,
+         "reason": "并发同键", "evidence_ids": ["ev1"]}, key,
+    )] * 6)
     assert all(r.status_code == 200 for r in results), [r.text for r in results]
-    assert results[0].json() == results[1].json()
+    assert all(r.json() == results[0].json() for r in results)
+    assert app.state.tasks.get("t1").revision == 4
+    assert len(state(app).get("metric_review_events", [])) == 1
+    with app.state.tasks.transaction() as db:
+        assert db.execute("SELECT COUNT(*) FROM idempotency").fetchone()[0] == 1
+
+
+def test_concurrent_different_keys_only_one_wins_at_same_revision(tmp_path):
+    """不同键、同版本并发：只有一个提交成功，其余全部 409。"""
+    app, c = setup(tmp_path)
+    seed(app, unknown_record(), artifacts=0)
+    bodies = [
+        ({"action": "confirm", "record_id": "r_E02_2024", "expected_revision": 3,
+          "reason": f"并发键 {i}", "evidence_ids": ["ev1"]}, str(uuid4()))
+        for i in range(6)
+    ]
+    results = _concurrent_reviews(app, bodies)
+    codes = [r.status_code for r in results]
+    assert codes.count(200) == 1, [r.text for r in results]
+    assert codes.count(409) == len(bodies) - 1
+    for r in results:
+        if r.status_code == 409:
+            assert r.json()["error"]["code"] == "REVISION_CONFLICT"
+            assert r.json()["revision"] == 4
     assert app.state.tasks.get("t1").revision == 4
     assert len(state(app).get("metric_review_events", [])) == 1
 
@@ -354,9 +399,85 @@ def test_audit_read_is_owner_protected(tmp_path):
     url = "/tasks/t1/metric-reviews"
     denied = c.get(url, headers={"Authorization": "Bearer token"})
     assert denied.status_code == 403
+    assert denied.json()["task_id"] is None and denied.json()["revision"] is None
     owned = c.get(url, headers={"X-User": "alice"}).json()
     event = owned["data"]["events"][0]
     assert event["actor"] == "alice"
     assert event["action"] == "confirm"
     assert event["reason"] and event["before"] and event["after"]
-    assert c.get(url, headers={"X-User": "bob"}).json()["data"]["events"] == []
+    foreign = c.get(url, headers={"X-User": "bob"})
+    assert foreign.status_code == 403
+    assert foreign.json()["data"] is None
+    assert foreign.json()["task_id"] is None and foreign.json()["revision"] is None
+
+
+def test_audit_get_missing_task_is_404_without_revision(tmp_path):
+    app, c = setup(tmp_path)
+    seed(app, unknown_record(), artifacts=0)
+    missing = c.get("/tasks/no_such_task/metric-reviews", headers=USER)
+    assert missing.status_code == 404
+    body = missing.json()
+    assert body["error"]["code"] == "NOT_FOUND"
+    assert body["data"] is None
+    assert body["task_id"] is None and body["revision"] is None
+
+
+def test_export_invalidation_failure_replay_and_restart(tmp_path, monkeypatch):
+    """导出失效在事务提交后执行：失败/重启/幂等重放都必须让旧导出过期。"""
+    import esg_app.metric_review as module
+
+    app, c = setup(tmp_path)
+    old = unknown_record()
+    artifacts = seed(app, old, artifacts=2)
+    assert all(app.state.artifacts.is_current(a) for a in artifacts)
+
+    # 提交后内存刷新失败：数据库已提交，旧导出仍须被持久层判为过期。
+    real_invalidate = app.state.artifacts.invalidate_task
+    def broken(task_id):
+        raise OSError("offline injected mirror refresh failure")
+    monkeypatch.setattr(app.state.artifacts, "invalidate_task", broken)
+    resp = review(c)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["invalidated"]["exports"] == artifacts
+    # 持久层按 revision 判定，与内存镜像刷新是否成功无关
+    assert all(not app.state.artifacts.is_current(a) for a in artifacts)
+
+    # 幂等重放：同键再次请求，返回同一结果，旧导出依然过期。
+    key = resp.request.headers.get("Idempotency-Key")
+    replay = review(c, key=key)
+    assert replay.status_code == 200
+    assert replay.json() == resp.json()
+    assert all(not app.state.artifacts.is_current(a) for a in artifacts)
+
+    # 重启：新的 app 实例从 SQLite 恢复，revision 与导出状态仍一致。
+    monkeypatch.setattr(app.state.artifacts, "invalidate_task", real_invalidate)
+    restarted = create_app(Settings(database_path=str(tmp_path / "test.db")))
+    assert restarted.state.tasks.get("t1").revision == 4
+    assert all(not restarted.state.artifacts.is_current(a) for a in artifacts)
+    again = review(TestClient(restarted), key=key)
+    assert again.json() == resp.json()
+    assert all(not restarted.state.artifacts.is_current(a) for a in artifacts)
+
+
+def test_audit_events_beyond_200_are_retained(tmp_path):
+    """写入 205 条后全部可追溯，不再截断到 200。"""
+    app, c = setup(tmp_path)
+    seed(app, unknown_record(), artifacts=0)
+    ids = []
+    for i in range(205):
+        key = str(uuid4())
+        body = {
+            "action": "confirm", "record_id": "r_E02_2024",
+            "expected_revision": 3 + i,  # 每条都递增版本，避免 409
+            "reason": f"第 {i} 次确认", "evidence_ids": ["ev1"],
+        }
+        resp = review(c, body, key=key)
+        assert resp.status_code == 200, resp.text
+        ids.append(resp.json()["data"]["audit_event_id"])
+    events = state(app).get("metric_review_events", [])
+    assert len(events) == 205
+    assert events[0]["audit_event_id"] == ids[0]  # 最早一条仍在
+    assert events[-1]["audit_event_id"] == ids[-1]
+    audit = c.get("/tasks/t1/metric-reviews", headers=USER).json()["data"]["events"]
+    assert len(audit) == 205
+    assert audit[-1]["audit_event_id"] == ids[0]  # GET 按最新在前返回

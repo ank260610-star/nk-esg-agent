@@ -324,9 +324,9 @@ def apply_metric_review(app, task_id: str, actor: str, body: dict, key: str | No
             "revision": new_revision,
             "at": _now(),
         }
+        # 审计事件必须完整保留，禁止按条数截断；历史复核全程可追溯。
         events = state.setdefault("metric_review_events", [])
         events.append(event)
-        state["metric_review_events"] = events[-200:]
         save_business(db, task_id, state)
         db.execute("UPDATE tasks SET revision=? WHERE task_id=?", (new_revision, task_id))
         response = envelope(
@@ -343,28 +343,38 @@ def apply_metric_review(app, task_id: str, actor: str, body: dict, key: str | No
             (identity, task_id, TOOL, str(key), digest, json.dumps(response)),
         )
 
-    # 仅在数据库提交成功后刷新页面镜像；失败时内存保持原状。
-    app.state.checks[task_id] = [
-        c for c in state.get("checks", []) if c.get("is_current", True)
-    ]
-    app.state.comparisons_by_task[task_id] = [
-        c for c in state.get("comparisons", []) if c.get("is_current", True)
-    ]
-    app.state.artifacts.invalidate_task(task_id)
+    # 仅在数据库提交成功后刷新页面镜像。这些镜像是 best-effort：
+    # 真相源是已提交的 SQLite（revision 递增后旧导出按 revision 动态判为过期），
+    # 刷新失败不得把已提交的成功业务改成 500，否则客户端会误判并错误重放。
+    try:
+        app.state.checks[task_id] = [
+            c for c in state.get("checks", []) if c.get("is_current", True)
+        ]
+        app.state.comparisons_by_task[task_id] = [
+            c for c in state.get("comparisons", []) if c.get("is_current", True)
+        ]
+        app.state.artifacts.invalidate_task(task_id)
+    except Exception:
+        # 重启后 create_app 会从 business_state 恢复镜像；导出过期由 revision 保证。
+        pass
     return response
 
 
 def audit_events(app, task_id: str, actor: str) -> list[dict]:
-    """只读审计展示数据：调用方已校验用户会话与任务归属。"""
+    """只读审计展示数据。
+
+    任务不存在返回 404、归属不符返回 403，两种错误的 task_id/revision 均为 null，
+    与契约「权限/存在性失败不泄露任务信息」一致。
+    """
     with app.state.tasks.transaction() as db:
         row = db.execute("SELECT results FROM tasks WHERE task_id=?", (task_id,)).fetchone()
         if row is None:
-            return []
+            _fail("NOT_FOUND", 404, "task not found")
         results = json.loads(row[0])
         task_meta = results.get("task") or {}
         owner = task_meta.get("owner") or task_meta.get("user_id") or results.get("owner")
         if owner and owner != actor:
-            return []
+            _fail("FORBIDDEN", 403, "task owner mismatch")
         state = read_business(db, task_id)
     fields = (
         "audit_event_id", "actor", "action", "record_id", "new_record_id",
