@@ -42,6 +42,14 @@ def assert_no_side_effects(app):
     ("1.23e4 tCO2e/万元营收", "4", "4"),                    # 科学计数法尾数
     ("2024\n100 tCO2e/万元营收", "2024100", "2024100"),      # 换行不得拼接
     ("100 万tCO2e/万元营收", "100", "100"),                  # 数量级误配
+    ("0.1300 tCO2e/万元营收", "2", "2"),                    # 单位中的数字
+    (".1e4 tCO2e/万元营收", "4", "4"),                      # 前导小数指数尾数
+    ("1.e4 tCO2e/万元营收", "4", "4"),                      # 尾随小数点指数尾数
+    ("1.23e−4 tCO2e/万元营收", "1.23", "1.23"),            # Unicode 负指数
+    ("1.23e−4 tCO2e/万元营收", "4", "4"),
+    ("−1 tCO2e/万元营收", "1", "1"),                        # 不能丢失负号
+    ("1.23e+ tCO2e/万元营收", "1.23", "1.23"),              # 不完整指数
+    ("CO2e tCO2e/万元营收", "2", "2"),                      # 没有实际数值
 ])
 def test_partial_or_concatenated_numbers_rejected(tmp_path, text, value, raw_value):
     app, c = setup_text(tmp_path, text)
@@ -60,6 +68,11 @@ def test_partial_or_concatenated_numbers_rejected(tmp_path, text, value, raw_val
 @pytest.mark.parametrize("text,value,raw_value", [
     ("1,000.00 tCO2e/万元营收", "1000", "1,000.00"),        # 千分位等值
     ("0.1300 tCO2e/万元营收", "0.13", "0.1300"),            # 尾随零等值
+    (".1e4 tCO2e/万元营收", "1000", ".1e4"),
+    ("1.e4 tCO2e/万元营收", "10000", "1.e4"),
+    ("1.23e−4 tCO2e/万元营收", "0.000123", "1.23e-4"),
+    ("−1 tCO2e/万元营收", "-1", "-1"),
+    ("排放强度100tCO2e/万元营收", "100", "100"),             # 紧邻中英文单位
 ])
 def test_equivalent_numbers_accepted_with_original_strings(tmp_path, text, value, raw_value):
     app, c = setup_text(tmp_path, text)

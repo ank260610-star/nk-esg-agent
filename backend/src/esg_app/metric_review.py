@@ -35,11 +35,12 @@ STATUSES = frozenset(
     {"extracted", "missing_marker", "unknown", "conflict", "parse_error"}
 )
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
-# 完整数值 token：左右边界禁止紧邻数字或小数点（.1 不得拆出 1、0.1300 不得拆出
-# 1300）；整数部分允许严格千分位（1,000.00）；科学计数法整体匹配（1.23e4 不得
-# 拆成 1.23 或 4）。匹配结果在原文上取，禁止把换行／空格拼接成新数字。
+# 字母/标识符内的数字（如 CO2e）不是数值；符号、小数及指数必须整体匹配，
+# 防止回溯拆出正数或指数尾数。允许数值后直接跟单位，保留原文空白边界。
 NUMBER_RE = re.compile(
-    r"(?<![\d.,])[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:[eE][-+]?\d+)?(?![\d.,])"
+    r"(?<![A-Za-z\d_.,+\-])[-+]?"
+    r"(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d*)?|\.\d+)"
+    r"(?:[eE][-+]?\d+)?(?![\d.,eE+\-])"
 )
 MARKERS = ("/", "—", "未披露", "未统计")
 
@@ -66,7 +67,8 @@ def _number_supported(value: str, text: str) -> bool:
         return False
     if not target.is_finite():
         return False
-    for token in NUMBER_RE.findall(text):
+    # PDF 常用数学负号；替换符号而不删除它，避免把 −1 解释为 +1。
+    for token in NUMBER_RE.findall(text.replace("−", "-")):
         try:
             if Decimal(token.replace(",", "")) == target:
                 return True
