@@ -21,3 +21,22 @@ export function revisionFrom(data, envelope) {
   if (!Number.isSafeInteger(revision) || revision<0) throw new RequestError('未取得有效服务端版本，请刷新核对。','INVALID_RESPONSE',true);
   return revision;
 }
+
+export function buildMetricReview(fields) {
+  const body={action:fields.action,record_id:fields.record_id,expected_revision:Number(fields.expected_revision),reason:fields.reason,
+    evidence_ids:(fields.evidence_ids||'').split(/\s+/).filter(Boolean)};
+  if(!body.reason?.trim()||!body.evidence_ids.length)throw new RequestError('请填写理由并选择原文证据。','INVALID_INPUT');
+  if(body.action==='correct'){
+    body.correction={};
+    for(const [name,value] of Object.entries(fields)){
+      if(!name.startsWith('c_'))continue;
+      const field=name.slice(2);
+      if(fields[`null_${field}`]==='null'){body.correction[field]=null;continue;}
+      if(field==='denominator'){
+        if(!fields.d_kind?.trim()||!fields.d_scale?.trim()||!fields.d_unit?.trim())throw new RequestError('请补齐分母类型、倍率和单位，或选择空值。','INVALID_INPUT');
+        body.correction[field]={kind:fields.d_kind,currency:fields.d_currency||null,scale:fields.d_scale,unit:fields.d_unit};
+      }else body.correction[field]=value;
+    }
+  }
+  return body;
+}

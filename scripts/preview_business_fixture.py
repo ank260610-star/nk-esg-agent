@@ -16,7 +16,7 @@ from esg_app.parse_repository import save_business
 from esg_app.run_jobs import RunStatus
 
 
-def fixture_app(directory: Path):
+def fixture_app(directory: Path, uncertain_first=False):
     from reportlab.pdfgen import canvas
 
     app = create_app(
@@ -59,7 +59,7 @@ def fixture_app(directory: Path):
                 1,
                 None,
                 "table",
-                "离线测试夹具：原值 0.1300；<img src=x onerror=alert(1)> 为普通文本。",
+                "离线测试夹具：原值 0、/、0.1300；<img src=x onerror=alert(1)> 为普通文本。",
                 viewer_url="https://ignored.invalid",
             )
         ]
@@ -93,8 +93,8 @@ def fixture_app(directory: Path):
                 "metric_year": 2024,
                 "raw_value": raw,
                 "value": value,
-                "raw_unit": "MWh",
-                "canonical_unit": "MWh",
+                "raw_unit": "tCO2e/万元营收" if index == 1 else "tCO2e",
+                "canonical_unit": "tCO2e/万元营收" if index == 1 else "tCO2e",
                 "conversion_rule": None,
                 "denominator": None,
                 "boundary_text": "离线测试夹具",
@@ -147,6 +147,17 @@ def fixture_app(directory: Path):
             app.state.runs.save(run)
 
     app.state.agent_starter = offline_starter
+    if uncertain_first:
+        from starlette.responses import JSONResponse
+
+        @app.middleware('http')
+        async def ambiguous_response(request, call_next):
+            nonlocal uncertain_first
+            response = await call_next(request)
+            if uncertain_first and request.method == 'POST' and request.url.path.endswith('/metric-reviews') and response.status_code == 200:
+                uncertain_first = False
+                return JSONResponse({'ok':False,'data':None,'error':{'code':'INTERNAL_ERROR','message':'离线模拟：业务已提交，但首次响应丢失'}},status_code=503)
+            return response
     return app
 
 
@@ -155,6 +166,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8767)
+    parser.add_argument("--uncertain-first", action="store_true", help="离线模拟首次复核提交成功但响应不确定")
     args = parser.parse_args()
     with TemporaryDirectory(prefix="esg-browser-fixture-") as directory:
-        uvicorn.run(fixture_app(Path(directory)), host="127.0.0.1", port=args.port)
+        uvicorn.run(fixture_app(Path(directory), args.uncertain_first), host="127.0.0.1", port=args.port)

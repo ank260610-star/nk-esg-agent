@@ -1,22 +1,26 @@
-import {RequestError, decodeResponse, runStatus, revisionFrom} from './business-client.js';
+import {RequestError, decodeResponse, runStatus, revisionFrom, buildMetricReview} from './business-client.js';
 
 const root=()=>document.getElementById('business-root');
 const feedback=document.getElementById('feedback');
 const drafts=new Map(), keys=new Map(), controllers=new Set();
 let pending=false, stale=false, generation=0, timer=null, pollDelay=2000, pollingRun=null;
 let lastFocus=null, pdfController=null;
+let unresolved=null;
+const retryButton=document.createElement('button');retryButton.type='button';retryButton.hidden=true;retryButton.textContent='核对原请求结果（同键重试）';feedback.after(retryButton);
+function syncEditors(){root().querySelectorAll('form[data-operation="metric"]').forEach(f=>{f.querySelector('[data-correction]').hidden=f.elements.action.value!=='correct';});}
 function notify(message,error=false) {feedback.textContent=message;feedback.classList.toggle('error',error);feedback.hidden=false;}
 function saveDrafts() {
   root().querySelectorAll('form[data-draft]').forEach(form=>{
-    const fields={};form.querySelectorAll('textarea,select').forEach(n=>{fields[n.name]=n.value;});
+    const fields={};form.querySelectorAll('textarea,select').forEach(n=>{fields[n.name]=n.multiple?[...n.selectedOptions].map(o=>o.value):n.value;});
     drafts.set(form.dataset.draft,fields);
   });
 }
 function restoreDrafts() {
   root().querySelectorAll('form[data-draft]').forEach(form=>{
     const fields=drafts.get(form.dataset.draft);if(!fields)return;
-    form.querySelectorAll('textarea,select').forEach(n=>{if(Object.hasOwn(fields,n.name))n.value=fields[n.name];});
+    form.querySelectorAll('textarea,select').forEach(n=>{if(Object.hasOwn(fields,n.name)){if(n.multiple){[...n.options].forEach(o=>{o.selected=fields[n.name].includes(o.value);});}else n.value=fields[n.name];}});
   });
+  syncEditors();
 }
 function disableWrites() {root().querySelectorAll('form[data-operation] button[type=submit]').forEach(n=>{n.disabled=true;});}
 function initTabs(selected='metrics') {
@@ -51,7 +55,8 @@ async function refresh({preserve=true, expected=null}={}) {
     const next=parsed.getElementById('business-root'),revision=Number(next?.dataset.revision);
     if(!next||next.dataset.taskId!==task||!Number.isSafeInteger(revision)||revision<version||(expected!==null&&revision<expected))throw new Error('快照不一致');
     if(epoch!==generation||root().dataset.taskId!==task)return false;
-    root().replaceWith(document.importNode(next,true));initTabs(selected);if(preserve)restoreDrafts();stale=false;
+    root().replaceWith(document.importNode(next,true));initTabs(selected);if(preserve)restoreDrafts();syncEditors();stale=false;
+    if(unresolved)disableWrites();
     return true;
   }catch(error){stale=true;disableWrites();throw new RequestError('无法取得当前任务快照。草稿已保留，请点击“刷新任务”重试；不回退到演示数据。','SNAPSHOT_UNAVAILABLE');}
   finally{clearTimeout(timeout);controllers.delete(controller);}
@@ -77,12 +82,16 @@ function startPolling() {
 }
 // Events are delegated because SSR replaces the root.
 document.addEventListener('input',event=>{if(event.target.closest('form[data-draft]'))saveDrafts();});
-document.addEventListener('change',event=>{if(event.target.closest('form[data-draft]'))saveDrafts();});
+document.addEventListener('change',event=>{if(event.target.closest('form[data-draft]')){saveDrafts();syncEditors();}});
 document.addEventListener('submit',async event=>{
   const form=event.target.closest('form[data-operation]');if(!form)return;event.preventDefault();
-  if(pending||stale){notify('请先刷新当前任务状态，再核对并提交。',true);return;}
-  const body=Object.fromEntries(new FormData(form));body.expected_revision=Number(body.expected_revision);
+  if(pending||stale||unresolved){notify(unresolved?'上次指标提交结果尚未确定，请先核对原请求结果。':'请先刷新当前任务状态，再核对并提交。',true);return;}
+  const fields=new FormData(form);let body=Object.fromEntries(fields);body.expected_revision=Number(body.expected_revision);
   if(body.resolution_evidence_ids!==undefined)body.resolution_evidence_ids=body.resolution_evidence_ids.split(/[\s,，]+/).filter(Boolean);
+  if(form.dataset.operation==='metric'){
+    body.evidence_ids=fields.getAll('evidence_ids').join(' ');
+    try{body=buildMetricReview(body);}catch(error){notify(error.message,true);return;}
+  }
   if(body.reason!==undefined&&!body.reason.trim()){notify('请填写复核理由。',true);return;}
   if(body.question!==undefined&&!body.question.trim()){notify('请输入问题。',true);return;}
   saveDrafts();pending=true;clearPoll();disableWrites();
@@ -90,7 +99,7 @@ document.addEventListener('submit',async event=>{
   let confirmed=false;
   try{
     const headers={'Content-Type':'application/json'};
-    if(operation==='export'){const fingerprint=JSON.stringify(body);if(keys.get(draft)?.body!==fingerprint)keys.set(draft,{id:crypto.randomUUID(),body:fingerprint});headers['Idempotency-Key']=keys.get(draft).id;}
+    if(operation==='export'||operation==='metric'){const fingerprint=JSON.stringify(body);if(keys.get(draft)?.body!==fingerprint)keys.set(draft,{id:crypto.randomUUID(),body:fingerprint});headers['Idempotency-Key']=keys.get(draft).id;}
     const {data,payload}=await request(form.getAttribute('action'),{method:'POST',headers,body:JSON.stringify(body)});
     if(operation==='run'){
       if(typeof data.run_id!=='string')throw new RequestError('未取得运行ID，请刷新核对。','INVALID_RESPONSE',true);
@@ -100,17 +109,30 @@ document.addEventListener('submit',async event=>{
     }else{
       const revision=revisionFrom(data,payload);confirmed=true;keys.delete(draft);drafts.delete(draft);
       const loaded=await refresh({preserve:false,expected:revision});restoreDrafts();
-      if(loaded)notify(['review','disposition'].includes(operation)?`人工核查已保存，当前revision ${root().dataset.revision}，已刷新评分和导出状态。`:'服务端导出已生成，请在右侧下载。');
+      if(loaded)notify(operation==='metric'?'指标复核已保存，已刷新记录、检查和旧导出的过期状态。':['review','disposition'].includes(operation)?`人工核查已保存，当前revision ${root().dataset.revision}，已刷新评分和导出状态。`:'服务端导出已生成，请在右侧下载。');
     }
   }catch(error){
+    if(operation==='metric'&&error.uncertain&&!confirmed){unresolved={task,draft,url:form.getAttribute('action'),body:JSON.stringify(body),key:keys.get(draft).id};retryButton.hidden=false;}
     if(!error.uncertain)keys.delete(draft);
     if(error.code==='REVISION_CONFLICT'||error.code==='RUN_BUSY'||error.uncertain){stale=true;}
     notify(confirmed?`服务端已受理，但页面刷新未完成。请刷新核对，勿重复提交。${error.message}`:error.message,true);
   }finally{
     pending=false;
-    if(stale||confirmed===false){disableWrites();notify(`${feedback.textContent} 点击“刷新任务”核对后再操作。`,true);}
+    if(stale||confirmed===false){disableWrites();notify(`${feedback.textContent} ${unresolved?'请点击“核对原请求结果（同键重试）”，保留当前页面。':'点击“刷新任务”核对后再操作。'}`,true);}
     // Do not resubmit a write or restart a run after ambiguous transport failure.
   }
+});
+retryButton.addEventListener('click',async()=>{
+  if(pending||!unresolved||root().dataset.taskId!==unresolved.task)return;
+  pending=true;retryButton.disabled=true;const saved=unresolved;
+  try{
+    const {data,payload}=await request(saved.url,{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':saved.key},body:saved.body});
+    const revision=revisionFrom(data,payload);unresolved=null;retryButton.hidden=true;keys.delete(saved.draft);drafts.delete(saved.draft);
+    await refresh({preserve:false,expected:revision});restoreDrafts();notify('原请求已核对为成功，已刷新当前结果。');
+  }catch(error){
+    if(!error.uncertain){unresolved=null;retryButton.hidden=true;keys.delete(saved.draft);stale=true;}
+    notify(`${error.message} 草稿已保留；${unresolved?'可再次核对原请求结果。':'请刷新任务后核对。'}`,true);
+  }finally{pending=false;retryButton.disabled=false;}
 });
 document.addEventListener('click',async event=>{
   const refreshButton=event.target.closest('[data-refresh]');
@@ -119,6 +141,7 @@ document.addEventListener('click',async event=>{
     try{if(await refresh()){notify('已取得当前版本；未提交草稿已保留，请核对后决定是否提交。');startPolling();}}catch(error){notify(error.message,true);}finally{document.querySelectorAll('[data-refresh]').forEach(b=>{b.disabled=false;});}return;
   }
   const artifact=event.target.closest('[data-artifact]');if(artifact){event.preventDefault();await downloadArtifact(artifact);return;}
+  if(event.target.closest('[data-audit]')){await loadAudit();return;}
   const tab=event.target.closest('[role=tab][data-panel]');if(tab){initTabs(tab.dataset.panel);return;}
   const evidence=event.target.closest('a[data-evidence]');if(evidence){event.preventDefault();await openEvidence(evidence);}
 });
@@ -151,7 +174,33 @@ const dialog=document.getElementById('evidence-dialog');
 document.getElementById('close-evidence').addEventListener('click',()=>dialog.close());
 dialog.addEventListener('close',()=>{pdfController?.abort();pdfController=null;document.getElementById('pdf-frame').removeAttribute('src');lastFocus?.focus();});
 window.addEventListener('pagehide',()=>{generation++;clearPoll();controllers.forEach(c=>c.abort());pdfController?.abort();});
-initTabs();startPolling();
+initTabs();syncEditors();startPolling();
+
+async function loadAudit(){
+  const target=root().querySelector('[data-audit-events]');target.textContent='正在读取复核历史…';
+  const task=root().dataset.taskId,epoch=generation;
+  try{
+    const {data}=await request(`/tasks/${encodeURIComponent(task)}/metric-reviews`);
+    if(epoch!==generation||root().dataset.taskId!==task)return;
+    target.replaceChildren();
+    for(const ev of data.events||[]){
+      const item=document.createElement('details'),title=document.createElement('summary');
+      title.textContent=`${ev.action==='correct'?'人工修正':'确认'} · ${ev.actor} · ${ev.at} · 版本 ${ev.revision}`;
+      const reason=document.createElement('p');reason.textContent=`理由：${ev.reason}`;
+      const evidence=document.createElement('p');evidence.textContent=`证据：${(ev.evidence_ids||[]).join('、')}`;
+      const table=document.createElement('table');table.className='audit-diff';
+      const heading=document.createElement('tr');for(const label of ['字段','复核前','复核后']){const th=document.createElement('th');th.textContent=label;heading.append(th);}table.append(heading);
+      const labels={record_id:'记录标识',raw_value:'原文值',value:'标准值',raw_unit:'原文单位',canonical_unit:'标准单位',status:'提取状态',review_state:'复核状态',origin:'来源',supersedes_id:'替代的旧记录',revision:'版本',is_current:'当前有效',boundary_text:'范围边界',boundary_key:'边界标识',method_text:'核算方法',denominator:'分母口径',conversion_rule:'换算说明',extraction_note:'提取说明'};
+      for(const [field,label] of Object.entries(labels)){
+        const row=document.createElement('tr');
+        for(const value of [label,ev.before?.[field],ev.after?.[field]]){const cell=document.createElement('td');cell.textContent=value===null?'未提供':value===undefined?'未记录':value===''?'空字符串':typeof value==='object'?Object.values(value).filter(v=>v!==null).join(' · '):String(value);row.append(cell);}
+        table.append(row);
+      }
+      item.append(title,reason,evidence,table);target.append(item);
+    }
+    if(!target.childNodes.length)target.textContent='暂无指标复核历史。';
+  }catch(error){target.textContent=error.message;}
+}
 
 async function downloadArtifact(link) {
   if(link.disabled)return;link.disabled=true;

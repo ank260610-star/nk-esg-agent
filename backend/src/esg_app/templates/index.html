@@ -49,7 +49,7 @@
   <div class="panel-heading"><div><div class="section-label">ANALYSIS</div><h2>指标与证据</h2></div><button type="button" data-refresh>刷新任务</button></div>
   <section class="run-card" aria-label="运行状态">
     <div><h3>智能体运行</h3><span class="status">{{ run_status|status_label if run_status else '尚未运行' }}</span></div>
-    {% if run_status == 'waiting_review' %}<p class="warn">当前暂停，等待人工处理。请检查未知指标及待复核建议。请逐项人工确认，或记录公开资料不足及使用限制；继续原会话不代表已满足整链验收。</p>
+    {% if run_status == 'waiting_review' %}<p class="warn">当前暂停，等待人工处理。请查看原文后逐项确认指标及检查建议，或记录公开资料不足及使用限制；继续原会话不代表已满足整链验收。</p>
     {% elif run_status == 'completed_with_limitations' %}<p class="warn">核查流程已完成，仍存在未证实事项和使用限制。未知值与缺失标记保留，不能当作数据已全部确认或Task 7已验收。</p>
     {% elif run_status == 'completed' %}<p>本轮运行结束，请核对结果和版本；不等于Task 7项目验收通过。</p>
     {% elif busy %}<p>任务正在执行。仅显示服务端状态，不模拟阶段完成进度。</p>
@@ -64,6 +64,7 @@
   <div class="tabs" role="tablist" aria-label="分析区域"><button role="tab" id="metrics-tab" aria-controls="metrics" aria-selected="true" data-panel="metrics">核心指标 <span>{{ records|length }}</span></button><button role="tab" id="questions-tab" aria-controls="questions" aria-selected="false" tabindex="-1" data-panel="questions">分析与问答</button></div>
   <section id="metrics" role="tabpanel" aria-labelledby="metrics-tab">
     <p class="muted">按服务端有效记录展示，提取状态与人工确认状态独立。原值保留原文精度。</p>
+    <details class="audit-panel"><summary>指标复核历史</summary><button type="button" data-audit>读取／刷新复核历史</button><div data-audit-events aria-live="polite"></div></details>
     {% for r in records %}
     <article class="metric-card"><div class="metric-title"><h3>{{ r.metric_id }} · {{ r.metric_year }}年<br><small>{{ metric_names.get(r.metric_id, r.metric_id) }}</small></h3><span class="badge">{{ r.status|status_label }}</span><span class="badge">{{ '事实未证实' if review_dispositions.get(('metric', r.record_id), {}).get('decision') == 'insufficient_evidence' else r.review_state|default('unreviewed')|status_label }}</span></div>
       <dl class="metric-values"><dt>原值 / 原单位</dt><dd>{{ r.raw_value|present }} <small>{{ r.raw_unit|present }}</small></dd><dt>标准值 / 标准单位</dt><dd>{{ r.value|present }} <small>{{ r.canonical_unit|present }}</small></dd></dl>
@@ -72,7 +73,25 @@
       {% if r.boundary_text %}<p class="muted">边界：{{ r.boundary_text }}</p>{% endif %}
       {% for eid in r.evidence_ids %}{% set ev = evidence_by_id.get(eid) %}{% if ev and ev.viewer_url %}<a class="evidence-link" data-evidence="{{ eid }}" href="{{ ev.viewer_url }}" target="_blank" rel="noopener">查看证据 · PDF p{{ ev.pdf_page }}</a>{% else %}<span class="warn">证据不可用：{{ eid }}</span>{% endif %}{% endfor %}
       {{ disposition_form('metric', r.record_id) }}
-      <div class="blocked"><button disabled title="指标修正接口已可用，表单待接入">修正指标数值（界面待接入）</button><small>不能通过页面内存或检查复核接口替代保存。</small></div>
+      <details class="metric-editor"><summary>确认或修正此指标</summary>
+      <p class="muted">仅确认保留数值与状态；人工修正保存新记录并保留历史。空值与空字符串分别保存。</p>
+      <form data-operation="metric" data-draft="metric-{{ r.record_id }}" action="/tasks/{{ task.task_id|urlencode }}/metric-reviews" method="post">
+        <input type="hidden" name="record_id" value="{{ r.record_id }}"><input type="hidden" name="expected_revision" value="{{ task.revision }}">
+        <label>操作<select name="action"><option value="confirm">仅确认当前内容及状态</option><option value="correct">人工修正</option></select></label>
+        <fieldset data-correction hidden><legend>修正内容 · 年份与报告固定</legend>
+          <label>提取状态<select name="c_status">{% for status in ['extracted','missing_marker','unknown','conflict','parse_error'] %}<option value="{{ status }}" {% if r.status == status %}selected{% endif %}>{{ status|status_label }}</option>{% endfor %}</select></label>
+          {% for field,label in [('raw_value','原文值'),('value','标准数值（保留小数精度）'),('raw_unit','原文单位'),('canonical_unit','标准单位'),('boundary_text','范围边界'),('boundary_key','边界标识'),('method_text','核算方法'),('conversion_rule','换算说明'),('denominator','分母结构（沿用已有结构；修改需核对）'),('extraction_note','提取／缺失说明')] %}
+          {% if field == 'denominator' %}
+          <fieldset><legend>分母口径</legend><input type="hidden" name="c_denominator" value="">
+          {% for part,title in [('kind','类型（如 revenue）'),('currency','币种（如 CNY；无则留空）'),('scale','倍率（保留字符串精度）'),('unit','分母单位（如 万元营收）')] %}<label>{{ title }}<textarea name="d_{{ part }}" rows="1">{{ (r.get('denominator') or {}).get(part) or '' }}</textarea></label>{% endfor %}</fieldset>
+          {% else %}<label>{{ label }}<textarea name="c_{{ field }}" rows="2">{% if r.get(field) is not none %}{{ r.get(field, '') }}{% endif %}</textarea></label>{% endif %}
+          {% if field in ['raw_value','value','raw_unit','canonical_unit','boundary_key','conversion_rule','denominator'] %}<label>{{ label }}的保存方式<select name="null_{{ field }}"><option value="text" {% if r.get(field) is not none %}selected{% endif %}>保存填写内容</option><option value="null" {% if r.get(field) is none %}selected{% endif %}>空值（未提供）</option></select></label>{% endif %}
+          {% endfor %}
+        </fieldset>
+        <label>原文证据<select name="evidence_ids" multiple required size="4">{% for ev in evidence_by_id.values() %}{% if ev.report_id == r.report_id and (ev.column_year is none or ev.column_year == r.metric_year) %}<option value="{{ ev.evidence_id }}" {% if ev.evidence_id in r.evidence_ids %}selected{% endif %}>{{ ev.evidence_id }} · PDF p{{ ev.pdf_page }} · {{ ev.text[:100] }}</option>{% endif %}{% endfor %}</select></label>
+        <label>复核理由<textarea name="reason" required maxlength="4000" placeholder="说明数值、年份、单位与原文依据；未知状态也须说明依据"></textarea></label>
+        <button type="submit" {% if busy %}disabled{% endif %}>保存指标复核</button>
+      </form></details>
     </article>{% else %}<p class="empty">尚未提取指标；无模拟回退。</p>{% endfor %}
     {% if comparisons %}<h3>跨年比较</h3>{% for c in comparisons %}<article class="comparison"><strong>{{ c.metric_id|present }}</strong> {{ c.status|status_label }}<p>原因：{{ c.reason_codes|default([])|join('、') or c.reason|default('未提供') }}</p><p>变化值 {{ c.delta|present }} · 同比 {{ c.percent_change|present }}{% if c.percent_change is not none and c.percent_change is defined %}%{% endif %}</p></article>{% endfor %}{% endif %}
     {% if issues %}<h3>任务问题</h3>{% for issue in issues %}<p class="warn">{{ issue.code }}：{{ issue.message }}</p>{% endfor %}{% endif %}
@@ -98,6 +117,6 @@
 </div>
 {% endif %}
 </div>
-<dialog id="evidence-dialog" aria-labelledby="evidence-heading"><div class="drawer-heading"><h2 id="evidence-heading">证据查看</h2><button type="button" id="close-evidence">关闭证据</button></div><div class="drawer-body"><p id="evidence-meta"></p><pre id="evidence-text"></pre><p id="pdf-status" role="status"></p><a id="pdf-link" target="_blank" rel="noopener">新窗口查看原件</a><iframe id="pdf-frame" title="登记报告原件" hidden></iframe><p class="muted">PDF物理页与印刷页分别显示；浏览器未跳页时请手动定位。指标修正等待正式用户接口。</p></div></dialog>
+<dialog id="evidence-dialog" aria-labelledby="evidence-heading"><div class="drawer-heading"><h2 id="evidence-heading">证据查看</h2><button type="button" id="close-evidence">关闭证据</button></div><div class="drawer-body"><p id="evidence-meta"></p><pre id="evidence-text"></pre><p id="pdf-status" role="status"></p><a id="pdf-link" target="_blank" rel="noopener">新窗口查看原件</a><iframe id="pdf-frame" title="登记报告原件" hidden></iframe><p class="muted">PDF物理页与印刷页分别显示；浏览器未跳页时请手动定位。指标修正以服务端复核接口为准。</p></div></dialog>
 <footer>本地业务工作台 · 所有评分、复核和导出以服务端版本为准</footer>
 </body></html>
