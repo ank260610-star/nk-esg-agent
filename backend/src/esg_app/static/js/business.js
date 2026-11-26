@@ -82,6 +82,7 @@ document.addEventListener('submit',async event=>{
   const form=event.target.closest('form[data-operation]');if(!form)return;event.preventDefault();
   if(pending||stale){notify('请先刷新当前任务状态，再核对并提交。',true);return;}
   const body=Object.fromEntries(new FormData(form));body.expected_revision=Number(body.expected_revision);
+  if(body.resolution_evidence_ids!==undefined)body.resolution_evidence_ids=body.resolution_evidence_ids.split(/[\s,，]+/).filter(Boolean);
   if(body.reason!==undefined&&!body.reason.trim()){notify('请填写复核理由。',true);return;}
   if(body.question!==undefined&&!body.question.trim()){notify('请输入问题。',true);return;}
   saveDrafts();pending=true;clearPoll();disableWrites();
@@ -99,7 +100,7 @@ document.addEventListener('submit',async event=>{
     }else{
       const revision=revisionFrom(data,payload);confirmed=true;keys.delete(draft);drafts.delete(draft);
       const loaded=await refresh({preserve:false,expected:revision});restoreDrafts();
-      if(loaded)notify(operation==='review'?`检查复核已保存，当前revision ${root().dataset.revision}，已刷新评分和导出状态。`:'服务端导出已生成，请在右侧下载。');
+      if(loaded)notify(['review','disposition'].includes(operation)?`人工核查已保存，当前revision ${root().dataset.revision}，已刷新评分和导出状态。`:'服务端导出已生成，请在右侧下载。');
     }
   }catch(error){
     if(!error.uncertain)keys.delete(draft);

@@ -10,6 +10,8 @@ from importlib.resources import files
 from .harness_runner import run_agent
 from .parse_repository import token_identity, read_business
 from .run_jobs import RunStatus
+from .review_dispositions import review_complete, visible_dispositions, restricted_check_ids
+from .rules_registry import ALL_CHECK_IDS
 
 
 def make_agent_starter(app, sdk_run=run_agent):
@@ -27,7 +29,11 @@ def make_agent_starter(app, sdk_run=run_agent):
             .joinpath("prompts/esg-agent.md")
             .read_text(encoding="utf-8")
         )
+        with app.state.tasks.transaction() as db:
+            approved = visible_dispositions(read_business(db, task_id))
         payload = dict(
+            human_review_dispositions=[{k: d.get(k) for k in
+                ['target_type', 'target_id', 'decision', 'limitations', 'needs_recheck']} for d in approved],
             task_id=task_id,
             mode=mode,
             revision=task.revision,
@@ -85,14 +91,8 @@ def make_agent_starter(app, sdk_run=run_agent):
             r.get("is_current") for r in state["records"]
         ):
             raise RuntimeError("No current extracted metric records were observed")
-        unresolved = any(
-            r.get("is_current")
-            and (
-                r.get("review_state") != "confirmed"
-                or r.get("status") not in ("extracted", "missing_marker")
-            )
-            for r in state["records"]
-        )
+        unresolved = any(r.get('is_current') and not review_complete(state, r, 'metric')
+                         for r in state['records'])
         metadata = task.results.get("task", task.results)
         required = {
             (f"E0{i}", year)
@@ -105,14 +105,13 @@ def make_agent_starter(app, sdk_run=run_agent):
             if r.get("is_current")
         }
         unresolved |= not required <= covered
-        unresolved |= any(
-            c.get("is_current")
-            and (c.get("review_state") != "confirmed" or c.get("status") == "unknown")
-            for c in state["checks"]
-        )
-        if mode != "question" and (
-            unresolved or len([c for c in state["checks"] if c.get("is_current")]) < 20
-        ):
+        unresolved |= any(c.get('is_current') and not review_complete(state, c, 'check')
+                          for c in state['checks'])
+        restricted = restricted_check_ids(state)
+        unresolved |= any(c.get('is_current') and c['check_id'] in restricted and c['status'] != 'unknown'
+                          for c in state['checks'])
+        checks_covered = {c['check_id'] for c in state['checks'] if c.get('is_current')}
+        if mode != "question" and (unresolved or not set(ALL_CHECK_IDS) <= checks_covered):
             run.answer, run.revision, run.status = (
                 answer,
                 revision,
@@ -125,6 +124,8 @@ def make_agent_starter(app, sdk_run=run_agent):
             for tool, ok, rev in calls
         ):
             raise RuntimeError("No current exported snapshot was observed")
-        app.state.runs.complete(run_id, answer, revision)
+        limited = mode != 'question' and any(d['decision'] == 'insufficient_evidence'
+                                               for d in visible_dispositions(state))
+        app.state.runs.complete(run_id, answer, revision, with_limitations=limited)
 
     return start

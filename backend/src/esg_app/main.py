@@ -37,6 +37,7 @@ from .export_service import ExportService
 from .web_presentation import STATUS_LABELS, METRIC_NAMES, present, percent, points, evidence_view
 from .rules_registry import ALL_CHECK_IDS
 from .write_service import WriteService, WRITES, envelope, validate
+from .metric_review import apply_metric_review, audit_events
 
 
 def error_envelope(code: str, message: str, retryable: bool = False) -> dict:
@@ -444,6 +445,43 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                 content=error_envelope("UNAUTHORIZED", "user session required"))
         return None
 
+    @app.post("/tasks/{task_id}/review-dispositions")
+    async def review_disposition(task_id: str, request: Request,
+                                 x_agent_token: str | None = Header(default=None),
+                                 x_user: str | None = Header(default=None)):
+        denied = require_user_session(x_user, x_agent_token, request)
+        if denied:
+            return denied
+        body = await _read_submission(request)
+        if isinstance(body, dict) and 'application/json' not in request.headers.get('content-type', ''):
+            try:
+                body['expected_revision'] = int(body.get('expected_revision', -1))
+            except (ValueError, TypeError):
+                body = None
+        from .review_dispositions import save_disposition
+        try:
+            return save_disposition(app, task_id, x_user or request.cookies.get('esg_user'), body, task_evidence)
+        except ParseError as exc:
+            return JSONResponse(status_code=exc.status, content=exc.payload)
+
+    @app.get("/tasks/{task_id}/review-dispositions")
+    def read_dispositions(task_id: str, request: Request,
+                          x_agent_token: str | None = Header(default=None),
+                          x_user: str | None = Header(default=None)):
+        denied = require_user_session(x_user, x_agent_token, request)
+        if denied:
+            return denied
+        from .review_dispositions import current_dispositions, pending_uncertainties, can_review
+        with app.state.tasks.transaction() as db:
+            task = db.execute('SELECT revision,results FROM tasks WHERE task_id=?', (task_id,)).fetchone()
+            if task is None:
+                return JSONResponse(status_code=404, content=error_envelope('NOT_FOUND', 'Task not found'))
+            if not can_review(json.loads(task[1]), x_user or request.cookies.get('esg_user')):
+                return JSONResponse(status_code=403, content=error_envelope('FORBIDDEN', 'Task belongs to another user'))
+            state = read_business(db, task_id)
+        return dict(ok=True, data=dict(current=current_dispositions(state), pending=pending_uncertainties(state),
+                    history=state.get('review_dispositions', [])), error=None, revision=task[0], task_id=task_id)
+
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request, task_id: str | None = None):
         store: InMemoryTaskStore = app.state.tasks
@@ -464,6 +502,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         checks = [c for c in checks if c.get('is_current', True)]
         comparisons = [c for c in comparisons if c.get('is_current', True)]
         records = [r for r in app.state.records.list_by_task(task_id) if r.get('is_current', True)] if task_id else []
+        from .review_dispositions import effective_checks
+        checks = effective_checks(business, checks)
         try:
             score = do_score(checks, app.state.rulebook) if task_id else None
         except Exception:
@@ -490,7 +530,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Bound initial HTML size; referenced evidence is always available.
         evidence_by_id = {eid: ev for i, (eid, ev) in enumerate(evidence_by_id.items())
                           if eid in referenced or i < 20}
+        from .review_dispositions import visible_dispositions
+        with app.state.tasks.transaction() as db:
+            disposition_state = read_business(db, task_id) if task_id else dict(records=[], checks=[])
+        disposition_map = {(d['target_type'], d['target_id']): d for d in visible_dispositions(disposition_state)}
         response = templates.TemplateResponse(request, "index.html", {
+            "review_dispositions": disposition_map,
             "task": task_view,
             "report_ids": (task_view or {}).get("report_ids", []),
             "evidence_by_id": evidence_by_id,
@@ -562,6 +607,51 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 return {}
         form = await request.form()
         return dict(form)
+
+    @app.post("/tasks/{task_id}/metric-reviews")
+    async def metric_review_route(task_id: str, request: Request,
+                                  x_agent_token: str | None = Header(default=None),
+                                  x_user: str | None = Header(default=None)):
+        """指标人工确认/修正：仅用户会话，Agent 令牌一律无效。"""
+        denied = require_user_session(x_user, x_agent_token, request)
+        if denied:
+            return denied
+        actor = x_user or request.cookies.get("esg_user")
+        body = await _read_submission(request)
+        if not isinstance(body, dict) or not body:
+            return JSONResponse(status_code=400, content=error_envelope(
+                "INVALID_INPUT", "invalid JSON"))
+        exported = app.state.artifacts.list_for_task(task_id)
+        artifact_ids = [a["artifact_id"] for a in exported if a.get("is_current")]
+        try:
+            return await run_in_threadpool(
+                apply_metric_review, app, task_id, actor, body,
+                request.headers.get("idempotency-key"), artifact_ids,
+            )
+        except ParseError as exc:
+            return JSONResponse(status_code=exc.status, content=exc.payload)
+        except Exception:
+            return JSONResponse(status_code=500, content=error_envelope(
+                "INTERNAL_ERROR", "Business operation failed"))
+
+    @app.get("/tasks/{task_id}/metric-reviews")
+    def metric_review_audit(task_id: str, request: Request,
+                            x_agent_token: str | None = Header(default=None),
+                            x_user: str | None = Header(default=None)):
+        denied = require_user_session(x_user, x_agent_token, request)
+        if denied:
+            return denied
+        actor = x_user or request.cookies.get("esg_user")
+        try:
+            events = audit_events(app, task_id, actor)
+        except ParseError as exc:
+            # 404/403 统一走不含 task_id/revision 的错误信封，避免泄露任务信息。
+            return JSONResponse(status_code=exc.status, content=error_envelope(
+                exc.payload["error"]["code"], exc.payload["error"]["message"]))
+        rec = app.state.tasks.get(task_id)
+        revision = rec.revision if rec is not None else 0
+        return {"ok": True, "data": {"events": events},
+                "error": None, "task_id": task_id, "revision": revision}
 
     @app.post("/tasks/{task_id}/exports")
     async def create_export(task_id: str, request: Request,
