@@ -211,12 +211,16 @@ def _render_markdown(task_id: str, revision: int, records: list[dict],
     return "\n".join(lines)
 
 
-def _render_csv(records: list[dict]) -> str:
+def _render_csv(records: list[dict], dispositions=None) -> str:
     buf = io.StringIO(newline="")
     w = csv.writer(buf, lineterminator="\n")
     w.writerow(["metric_id", "metric_year", "raw_value", "value", "raw_unit",
-                "canonical_unit", "status", "origin", "evidence_ids", "extraction_note"])
+                "canonical_unit", "status", "origin", "evidence_ids", "extraction_note",
+                "review_decision", "review_reason", "search_scope", "missing_material", "use_limitations",
+                "review_target_type", "review_target_id"])
+    by_record = {d['target_id']: d for d in (dispositions or []) if d['target_type'] == 'metric'}
     for rec in records:
+        review = by_record.get(rec.get('record_id'), {})
         w.writerow([
             csv_safe_cell(rec.get("metric_id")),
             csv_safe_cell(rec.get("metric_year")),
@@ -228,7 +232,14 @@ def _render_csv(records: list[dict]) -> str:
             csv_safe_cell(rec.get("origin")),
             csv_safe_cell("、".join(rec.get("evidence_ids", []))),
             csv_safe_cell(rec.get("extraction_note", "")),
+            *[csv_safe_cell(review.get(k, "")) for k in ['decision', 'reason', 'search_scope', 'missing_material', 'limitations']],
+            'metric', csv_safe_cell(rec.get('record_id', '')),
         ])
+    for review in dispositions or []:
+        if review['target_type'] == 'check':
+            w.writerow([''] * 10 + [csv_safe_cell(review.get(k, '')) for k in
+                        ['decision', 'reason', 'search_scope', 'missing_material', 'limitations']]
+                       + ['check', csv_safe_cell(review['target_id'])])
     return buf.getvalue()
 
 
@@ -236,16 +247,18 @@ def build_export_bundle(task_id: str, expected_revision: int, current_revision: 
                         records: list[dict], score: dict, checks: list[dict],
                         comparisons: list[dict], evidence: list[dict],
                         rule_version: str, report_meta: list[dict],
-                        store: ArtifactStore) -> dict:
+                        store: ArtifactStore, review_dispositions: list[dict] | None = None) -> dict:
     """生成三格式同版本产物；revision 不符则拒绝（409）。"""
     if expected_revision != current_revision:
         raise ExportError("REVISION_CONFLICT",
                           f"expected {expected_revision}, current {current_revision}")
+    review_dispositions = review_dispositions or []
     json_payload = {
         "task_id": task_id,
         "revision": current_revision,
         "rule_version": rule_version,
         "experimental": True,
+        "review_dispositions": review_dispositions,
         "reports": report_meta,
         "metrics": records,
         "comparisons": comparisons,
@@ -261,11 +274,16 @@ def build_export_bundle(task_id: str, expected_revision: int, current_revision: 
         "limitations": ["解析失败不等于未披露", "unknown 不计 0 分",
                         "N/A 须人工确认", "单一样本不代表行业"],
     }
+    disposition_lines = ["", "## 人工核查处置与使用限制", "", "核查处置完成不等于数据已经证实；未知项不补零、不作确定同比。", ""]
+    for item in review_dispositions:
+        for field in ['target_type', 'target_id', 'decision', 'reason', 'search_scope', 'missing_material', 'limitations', 'actor', 'at', 'revision']:
+            if field in item:
+                disposition_lines.append(f"- {field}: {item[field]}")
     contents = [
         ("markdown", "text/markdown", "md",
          _render_markdown(task_id, current_revision, records, score, checks,
-                          comparisons, evidence, rule_version, report_meta)),
-        ("csv", "text/csv", "csv", _render_csv(records)),
+                          comparisons, evidence, rule_version, report_meta) + "\n".join(disposition_lines)),
+        ("csv", "text/csv", "csv", _render_csv(records, review_dispositions)),
         ("json", "application/json", "json",
          json.dumps(json_payload, ensure_ascii=False, indent=2, default=str)),
     ]

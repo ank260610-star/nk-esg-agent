@@ -670,7 +670,8 @@ class WriteService:
                 from .scoring import score_checks
 
                 checks = state["checks"] or self.app.state.checks.get(task_id, [])
-                result = score_checks(checks, self.app.state.rulebook)
+                from .review_dispositions import effective_checks
+                result = score_checks(effective_checks(state, checks), self.app.state.rulebook)
                 result["revision"] = revision
                 state["score"] = result
                 save_business(db, task_id, state)

@@ -444,6 +444,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                 content=error_envelope("UNAUTHORIZED", "user session required"))
         return None
 
+    @app.post("/tasks/{task_id}/review-dispositions")
+    async def review_disposition(task_id: str, request: Request,
+                                 x_agent_token: str | None = Header(default=None),
+                                 x_user: str | None = Header(default=None)):
+        denied = require_user_session(x_user, x_agent_token, request)
+        if denied:
+            return denied
+        body = await _read_submission(request)
+        if isinstance(body, dict) and 'application/json' not in request.headers.get('content-type', ''):
+            try:
+                body['expected_revision'] = int(body.get('expected_revision', -1))
+            except (ValueError, TypeError):
+                body = None
+        from .review_dispositions import save_disposition
+        try:
+            return save_disposition(app, task_id, x_user or request.cookies.get('esg_user'), body, task_evidence)
+        except ParseError as exc:
+            return JSONResponse(status_code=exc.status, content=exc.payload)
+
+    @app.get("/tasks/{task_id}/review-dispositions")
+    def read_dispositions(task_id: str, request: Request,
+                          x_agent_token: str | None = Header(default=None),
+                          x_user: str | None = Header(default=None)):
+        denied = require_user_session(x_user, x_agent_token, request)
+        if denied:
+            return denied
+        from .review_dispositions import current_dispositions
+        with app.state.tasks.transaction() as db:
+            task = db.execute('SELECT revision FROM tasks WHERE task_id=?', (task_id,)).fetchone()
+            if task is None:
+                return JSONResponse(status_code=404, content=error_envelope('NOT_FOUND', 'Task not found'))
+            state = read_business(db, task_id)
+        return dict(ok=True, data=dict(current=current_dispositions(state),
+                    history=state.get('review_dispositions', [])), error=None, revision=task[0], task_id=task_id)
+
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request, task_id: str | None = None):
         store: InMemoryTaskStore = app.state.tasks
@@ -464,6 +499,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         checks = [c for c in checks if c.get('is_current', True)]
         comparisons = [c for c in comparisons if c.get('is_current', True)]
         records = [r for r in app.state.records.list_by_task(task_id) if r.get('is_current', True)] if task_id else []
+        from .review_dispositions import effective_checks
+        checks = effective_checks(business, checks)
         try:
             score = do_score(checks, app.state.rulebook) if task_id else None
         except Exception:
@@ -490,7 +527,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Bound initial HTML size; referenced evidence is always available.
         evidence_by_id = {eid: ev for i, (eid, ev) in enumerate(evidence_by_id.items())
                           if eid in referenced or i < 20}
+        from .review_dispositions import current_dispositions
+        with app.state.tasks.transaction() as db:
+            disposition_state = read_business(db, task_id) if task_id else dict(records=[], checks=[])
+        disposition_map = {(d['target_type'], d['target_id']): d for d in current_dispositions(disposition_state)}
         response = templates.TemplateResponse(request, "index.html", {
+            "review_dispositions": disposition_map,
             "task": task_view,
             "report_ids": (task_view or {}).get("report_ids", []),
             "evidence_by_id": evidence_by_id,

@@ -228,7 +228,7 @@ def main():
         if run.answer:
             (args.output / "answer.md").write_text(run.answer, encoding="utf-8")
         print(json.dumps(summary, ensure_ascii=False))
-        return 0 if run.status in (RunStatus.COMPLETED, RunStatus.WAITING_REVIEW) else 1
+        return 0 if run.status in (RunStatus.COMPLETED, RunStatus.COMPLETED_WITH_LIMITATIONS, RunStatus.WAITING_REVIEW) else 1
     finally:
         server.should_exit = True
         thread.join(10)

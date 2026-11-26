@@ -13,6 +13,7 @@ class RunStatus(str, Enum):
     RUNNING = "running"
     WAITING_REVIEW = "waiting_review"
     COMPLETED = "completed"
+    COMPLETED_WITH_LIMITATIONS = "completed_with_limitations"
     FAILED = "failed"
     CANCELLED = "cancelled"
 
@@ -68,14 +69,14 @@ class AgentRunStore:
         self.save(run)
         return run
 
-    def complete(self, run_id: str, answer: str, revision: int | None) -> None:
+    def complete(self, run_id: str, answer: str, revision: int | None, *, with_limitations: bool = False) -> None:
         """只有拿到真实结构化工具结果才允许 completed。"""
         if not answer:
             raise ValueError("empty answer cannot be completed")
         run = self.get(run_id)
         run.answer = answer
         run.revision = revision
-        run.status = RunStatus.COMPLETED
+        run.status = RunStatus.COMPLETED_WITH_LIMITATIONS if with_limitations else RunStatus.COMPLETED
         self.save(run)
 
     def fail(self, run_id: str, error: str) -> None:

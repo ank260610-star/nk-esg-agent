@@ -308,9 +308,9 @@ def test_export_version_changed_during_generation_is_not_published(
     app, c = setup(tmp_path)
     original = exports._render_csv
 
-    def change(records):
+    def change(records, dispositions=None):
         app.state.tasks.get("t1").revision = 4
-        return original(records)
+        return original(records, dispositions)
 
     monkeypatch.setattr(exports, "_render_csv", change)
     response = post(c, "exports", dict(expected_revision=3))

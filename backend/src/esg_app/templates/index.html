@@ -16,6 +16,21 @@
 {% set latest = runs[0] if runs else none %}
 {% set run_status = latest.status.value if latest else '' %}
 {% set busy = run_status in ['queued', 'running'] %}
+{% macro disposition_form(kind, identifier) %}
+{% set disposition = review_dispositions.get((kind, identifier)) %}
+{% if disposition %}<div class="warn"><strong>{{ '已人工核查，证据不足' if disposition.decision == 'insufficient_evidence' else '已人工确认' }}</strong><p>{{ disposition.reason }}</p>{% if disposition.limitations %}<p>使用限制：{{ disposition.limitations }}</p><p>缺失材料：{{ disposition.missing_material }}</p><p>检索范围：{{ disposition.search_scope }}</p>{% endif %}<small>{{ disposition.actor }} · {{ disposition.at }} · revision {{ disposition.revision }}</small></div>{% endif %}
+<details><summary>人工核查处置（不改原始数值）</summary>
+<p>核查结束与事实确定独立。技术提取错误应先修复；公开资料不足须记录过程与使用限制。</p>
+<form data-operation="disposition" data-draft="disposition-{{ kind }}-{{ identifier }}" action="/tasks/{{ task.task_id|urlencode }}/review-dispositions" method="post">
+<input type="hidden" name="target_type" value="{{ kind }}"><input type="hidden" name="target_id" value="{{ identifier }}"><input type="hidden" name="expected_revision" value="{{ task.revision }}">
+<label>处置结论<select name="decision"><option value="insufficient_evidence">已核查，公开资料不足</option><option value="confirm">确认已披露事实或既有判断</option><option value="reopen">重新打开核查</option></select></label>
+<label>复核理由<textarea name="reason" required maxlength="4000"></textarea></label>
+<label>已检索的报告版本、物理页与范围<textarea name="search_scope" maxlength="4000"></textarea></label>
+<label>尚缺材料<textarea name="missing_material" maxlength="4000"></textarea></label>
+<label>使用限制（如禁止确定同比、不得使用反推因子）<textarea name="limitations" maxlength="4000"></textarea></label>
+<p class="muted">选择“公开资料不足”时以上四项均必填。确认不能消除未知值；指标处置将使相关检查和旧比较过期，需重新核对。</p>
+<button type="submit" {% if busy %}disabled{% endif %}>保存人工核查处置</button></form></details>
+{% endmacro %}
 <div class="workspace" data-run-id="{{ latest.run_id if latest else '' }}" data-run-status="{{ run_status }}">
 <aside class="sidebar">
   <div class="section-label">WORKSPACE</div><h1>报告与任务</h1>
@@ -33,7 +48,8 @@
   <div class="panel-heading"><div><div class="section-label">ANALYSIS</div><h2>指标与证据</h2></div><button type="button" data-refresh>刷新任务</button></div>
   <section class="run-card" aria-label="运行状态">
     <div><h3>智能体运行</h3><span class="status">{{ run_status|status_label if run_status else '尚未运行' }}</span></div>
-    {% if run_status == 'waiting_review' %}<p class="warn">当前暂停，等待人工处理。请检查未知指标及待复核建议。指标确认接口尚未提供；继续原会话不代表已满足整链验收。</p>
+    {% if run_status == 'waiting_review' %}<p class="warn">当前暂停，等待人工处理。请检查未知指标及待复核建议。请逐项人工确认，或记录公开资料不足及使用限制；继续原会话不代表已满足整链验收。</p>
+    {% elif run_status == 'completed_with_limitations' %}<p class="warn">核查流程已完成，仍存在未证实事项和使用限制。未知值与缺失标记保留，不能当作数据已全部确认或Task 7已验收。</p>
     {% elif run_status == 'completed' %}<p>本轮运行结束，请核对结果和版本；不等于Task 7项目验收通过。</p>
     {% elif busy %}<p>任务正在执行。仅显示服务端状态，不模拟阶段完成进度。</p>
     {% elif run_status == 'failed' %}<p class="warn">运行失败：{{ latest.error|present }}</p>
@@ -48,13 +64,14 @@
   <section id="metrics" role="tabpanel" aria-labelledby="metrics-tab">
     <p class="muted">按服务端有效记录展示，提取状态与人工确认状态独立。原值保留原文精度。</p>
     {% for r in records %}
-    <article class="metric-card"><div class="metric-title"><h3>{{ r.metric_id }} · {{ r.metric_year }}年<br><small>{{ metric_names.get(r.metric_id, r.metric_id) }}</small></h3><span class="badge">{{ r.status|status_label }}</span><span class="badge">{{ r.review_state|default('unreviewed')|status_label }}</span></div>
+    <article class="metric-card"><div class="metric-title"><h3>{{ r.metric_id }} · {{ r.metric_year }}年<br><small>{{ metric_names.get(r.metric_id, r.metric_id) }}</small></h3><span class="badge">{{ r.status|status_label }}</span><span class="badge">{{ '事实未证实' if review_dispositions.get(('metric', r.record_id), {}).get('decision') == 'insufficient_evidence' else r.review_state|default('unreviewed')|status_label }}</span></div>
       <dl class="metric-values"><dt>原值 / 原单位</dt><dd>{{ r.raw_value|present }} <small>{{ r.raw_unit|present }}</small></dd><dt>标准值 / 标准单位</dt><dd>{{ r.value|present }} <small>{{ r.canonical_unit|present }}</small></dd></dl>
       <p>来源：{{ r.origin|present }} · 报告 {{ r.report_id|present }}</p>
       {% if r.extraction_note %}<p class="warn">{{ r.extraction_note }}</p>{% endif %}
       {% if r.boundary_text %}<p class="muted">边界：{{ r.boundary_text }}</p>{% endif %}
       {% for eid in r.evidence_ids %}{% set ev = evidence_by_id.get(eid) %}{% if ev and ev.viewer_url %}<a class="evidence-link" data-evidence="{{ eid }}" href="{{ ev.viewer_url }}" target="_blank" rel="noopener">查看证据 · PDF p{{ ev.pdf_page }}</a>{% else %}<span class="warn">证据不可用：{{ eid }}</span>{% endif %}{% endfor %}
-      <div class="blocked"><button disabled title="等待正式指标用户接口">确认或修正指标（待接口）</button><small>不能通过页面内存或检查复核接口替代保存。</small></div>
+      {{ disposition_form('metric', r.record_id) }}
+      <div class="blocked"><button disabled title="等待正式指标用户接口">修正指标数值（待接口）</button><small>不能通过页面内存或检查复核接口替代保存。</small></div>
     </article>{% else %}<p class="empty">尚未提取指标；无模拟回退。</p>{% endfor %}
     {% if comparisons %}<h3>跨年比较</h3>{% for c in comparisons %}<article class="comparison"><strong>{{ c.metric_id|present }}</strong> {{ c.status|status_label }}<p>原因：{{ c.reason_codes|default([])|join('、') or c.reason|default('未提供') }}</p><p>变化值 {{ c.delta|present }} · 同比 {{ c.percent_change|present }}{% if c.percent_change is not none and c.percent_change is defined %}%{% endif %}</p></article>{% endfor %}{% endif %}
     {% if issues %}<h3>任务问题</h3>{% for issue in issues %}<p class="warn">{{ issue.code }}：{{ issue.message }}</p>{% endfor %}{% endif %}
@@ -69,8 +86,9 @@
   <div class="section-label">FINDINGS</div><h2>评分与未知项</h2>
   {% if score %}<section class="score-card"><p class="warn">{{ score.label|status_label }} · 项目自建试验规则</p><dl><dt>证据覆盖率</dt><dd>{{ score.coverage|percentage }}</dd><dt>参考分</dt><dd>{{ score.reference_score|points }}</dd><dt>可能区间</dt><dd>[{{ score.lower_bound|points }}, {{ score.upper_bound|points }}]</dd><dt>最终分</dt><dd>{{ score.final_score|points }}</dd></dl><p class="muted">未知不计0；未复核建议不能视为已认可结论。</p></section>{% else %}<p>还没有有效评分结果。</p>{% endif %}
   <h2 id="review">人工复核 · 检查建议</h2><p class="muted">理由必填。保存后以服务器新版本刷新全页；N/A等复杂操作暂未接入。</p>
-  {% for c in checks %}<details class="check-card" {% if loop.first %}open{% endif %}><summary>{{ c.check_id }} · {{ c.status|status_label }} <small>{{ c.review_state|default('unreviewed')|status_label }}</small></summary><p>{{ rule_titles.get(c.check_id, c.check_id) }}</p><p>来源：{{ c.origin|present }}</p><p>{{ c.reason or c.missing_information or '未提供判定理由' }}</p>{% if c.suggestion %}<p>建议：{{ c.suggestion }}</p>{% endif %}
+  {% for c in checks %}<details class="check-card" {% if loop.first %}open{% endif %}><summary>{{ c.check_id }} · {{ c.status|status_label }} <small>{{ '事实未证实' if review_dispositions.get(('check', c.check_id), {}).get('decision') == 'insufficient_evidence' else c.review_state|default('unreviewed')|status_label }}</small></summary><p>{{ rule_titles.get(c.check_id, c.check_id) }}</p><p>来源：{{ c.origin|present }}</p><p>{{ c.reason or c.missing_information or '未提供判定理由' }}</p>{% if c.suggestion %}<p>建议：{{ c.suggestion }}</p>{% endif %}
     {% for eid in c.evidence_ids|default([]) %}{% set ev=evidence_by_id.get(eid) %}{% if ev and ev.viewer_url %}<a data-evidence="{{ eid }}" href="{{ ev.viewer_url }}" target="_blank" rel="noopener">证据 · PDF p{{ ev.pdf_page }}</a>{% else %}<span class="warn">证据缺失：{{ eid }}</span>{% endif %}{% endfor %}
+    {{ disposition_form('check', c.check_id) }}
     <form data-operation="review" data-draft="check-{{ c.check_id }}" action="/tasks/{{ task.task_id|urlencode }}/review" method="post"><input type="hidden" name="action" value="set_check_status"><input type="hidden" name="check_id" value="{{ c.check_id }}"><input type="hidden" name="expected_revision" value="{{ task.revision }}"><label>复核状态<select name="new_status"><option value="unknown">未知</option><option value="met">满足</option>{% if c.check_id not in ['Q02'] %}<option value="partial">部分满足</option>{% endif %}<option value="not_met">不满足</option></select></label><label>复核理由<textarea name="reason" required maxlength="2000" placeholder="说明原文依据或确认未披露的检查过程"></textarea></label><button type="submit" {% if busy %}disabled{% endif %}>保存 {{ c.check_id }} 复核</button></form>
   </details>{% else %}<p>尚无检查建议，无法逐项复核。</p>{% endfor %}
   <section id="export"><h2>当前版本导出</h2><form data-operation="export" data-draft="export" action="/tasks/{{ task.task_id|urlencode }}/exports" method="post"><input type="hidden" name="expected_revision" value="{{ task.revision }}"><button type="submit" {% if busy %}disabled{% endif %}>生成 Markdown / CSV / JSON</button></form><p class="muted">保存成功后重新取得服务端产物；页面不自行生成分析报告。</p>

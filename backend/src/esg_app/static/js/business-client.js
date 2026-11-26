@@ -12,7 +12,7 @@ export function decodeResponse(status, payload) {
   return payload.data;
 }
 export function runStatus(value) {
-  const labels={queued:'排队中',running:'运行中',waiting_review:'待人工复核',completed:'本轮运行结束',failed:'运行失败',cancelled:'已取消'};
+  const labels={queued:'排队中',running:'运行中',waiting_review:'待人工复核',completed:'本轮运行结束',completed_with_limitations:'核查流程已完成，存在使用限制',failed:'运行失败',cancelled:'已取消'};
   if (!Object.hasOwn(labels,value)) throw new RequestError('服务端运行状态无法识别。','INVALID_RESPONSE');
   return {label:labels[value],active:['queued','running'].includes(value)};
 }

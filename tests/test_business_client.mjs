@@ -22,3 +22,5 @@ test('only queued/running continue polling; paused is not completed',()=>{
   assert.equal(runStatus('failed').active,false);
   assert.throws(()=>runStatus('invented'));
 });
+
+test('limited completion stops polling without claiming facts confirmed',()=>{assert.equal(runStatus('completed_with_limitations').active,false);assert.match(runStatus('completed_with_limitations').label,/使用限制/);});
