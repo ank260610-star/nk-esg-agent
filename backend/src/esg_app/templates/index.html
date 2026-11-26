@@ -18,12 +18,13 @@
 {% set busy = run_status in ['queued', 'running'] %}
 {% macro disposition_form(kind, identifier) %}
 {% set disposition = review_dispositions.get((kind, identifier)) %}
-{% if disposition %}<div class="warn"><strong>{{ '已人工核查，证据不足' if disposition.decision == 'insufficient_evidence' else '已人工确认' }}</strong><p>{{ disposition.reason }}</p>{% if disposition.limitations %}<p>使用限制：{{ disposition.limitations }}</p><p>缺失材料：{{ disposition.missing_material }}</p><p>检索范围：{{ disposition.search_scope }}</p>{% endif %}<small>{{ disposition.actor }} · {{ disposition.at }} · revision {{ disposition.revision }}</small></div>{% endif %}
+{% if disposition %}<div class="warn"><strong>{{ '原处置已失效，限制仍保留，需重新核查' if disposition.needs_recheck else ('已人工核查，证据不足' if disposition.decision == 'insufficient_evidence' else '已人工确认') }}</strong><p>{{ disposition.reason }}</p>{% if disposition.limitations %}<p>使用限制：{{ disposition.limitations }}</p><p>缺失材料：{{ disposition.missing_material }}</p><p>检索范围：{{ disposition.search_scope }}</p>{% endif %}<small>{{ disposition.actor }} · {{ disposition.at }} · revision {{ disposition.revision }}</small></div>{% endif %}
 <details><summary>人工核查处置（不改原始数值）</summary>
 <p>核查结束与事实确定独立。技术提取错误应先修复；公开资料不足须记录过程与使用限制。</p>
 <form data-operation="disposition" data-draft="disposition-{{ kind }}-{{ identifier }}" action="/tasks/{{ task.task_id|urlencode }}/review-dispositions" method="post">
 <input type="hidden" name="target_type" value="{{ kind }}"><input type="hidden" name="target_id" value="{{ identifier }}"><input type="hidden" name="expected_revision" value="{{ task.revision }}">
-<label>处置结论<select name="decision"><option value="insufficient_evidence">已核查，公开资料不足</option><option value="confirm">确认已披露事实或既有判断</option><option value="reopen">重新打开核查</option></select></label>
+<label>处置结论<select name="decision"><option value="insufficient_evidence">已核查，公开资料不足</option><option value="confirm">确认已披露事实或既有判断</option><option value="reopen">重新打开核查</option><option value="resolve">依据新增证据解除限制</option></select></label>
+<label>解除限制的新增证据ID（逗号或空格分隔；须已登记在本任务）<textarea name="resolution_evidence_ids"></textarea></label>
 <label>复核理由<textarea name="reason" required maxlength="4000"></textarea></label>
 <label>已检索的报告版本、物理页与范围<textarea name="search_scope" maxlength="4000"></textarea></label>
 <label>尚缺材料<textarea name="missing_material" maxlength="4000"></textarea></label>
@@ -71,7 +72,7 @@
       {% if r.boundary_text %}<p class="muted">边界：{{ r.boundary_text }}</p>{% endif %}
       {% for eid in r.evidence_ids %}{% set ev = evidence_by_id.get(eid) %}{% if ev and ev.viewer_url %}<a class="evidence-link" data-evidence="{{ eid }}" href="{{ ev.viewer_url }}" target="_blank" rel="noopener">查看证据 · PDF p{{ ev.pdf_page }}</a>{% else %}<span class="warn">证据不可用：{{ eid }}</span>{% endif %}{% endfor %}
       {{ disposition_form('metric', r.record_id) }}
-      <div class="blocked"><button disabled title="等待正式指标用户接口">修正指标数值（待接口）</button><small>不能通过页面内存或检查复核接口替代保存。</small></div>
+      <div class="blocked"><button disabled title="指标修正接口已可用，表单待接入">修正指标数值（界面待接入）</button><small>不能通过页面内存或检查复核接口替代保存。</small></div>
     </article>{% else %}<p class="empty">尚未提取指标；无模拟回退。</p>{% endfor %}
     {% if comparisons %}<h3>跨年比较</h3>{% for c in comparisons %}<article class="comparison"><strong>{{ c.metric_id|present }}</strong> {{ c.status|status_label }}<p>原因：{{ c.reason_codes|default([])|join('、') or c.reason|default('未提供') }}</p><p>变化值 {{ c.delta|present }} · 同比 {{ c.percent_change|present }}{% if c.percent_change is not none and c.percent_change is defined %}%{% endif %}</p></article>{% endfor %}{% endif %}
     {% if issues %}<h3>任务问题</h3>{% for issue in issues %}<p class="warn">{{ issue.code }}：{{ issue.message }}</p>{% endfor %}{% endif %}

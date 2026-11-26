@@ -8,7 +8,8 @@
 
 - `confirm`：确认已披露事实或既有非未知判断，需理由及本任务证据。不能确认未知、冲突或解析失败记录。
 - `insufficient_evidence`：已人工核查，公开资料不足。理由、检索范围、缺失材料及使用限制均必填。
-- `reopen`：重新打开核查，保留旧处置历史。
+- `reopen`：重新打开核查，保留旧处置历史与限制。
+- `resolve`：人工依据新增证据明确解除限制；须提供理由及resolution_evidence_ids，至少一个证据ID不在原处置引用中，且全部属于本任务。系统验证证据归属与事实支持，不自动判断企业材料是否真正解决方法或范围问题，仍由人工承担实质复核。
 
 这是既有值的确认和证据不足处置，不含数值修正接口；不会恢复旧E02被清空的值。E02技术校验失败、parse_error、conflict不能作为公开资料不足结案，应先修复或走正式纠错流程。
 
@@ -25,17 +26,17 @@
 ## 用户接口
 
 - `POST /tasks/{task_id}/review-dispositions`
-- `GET /tasks/{task_id}/review-dispositions`：返回current与history。
+- `GET /tasks/{task_id}/review-dispositions`：返回current（仍有效处置）、pending（含需重核的限制）与history。
 
 仅接受用户会话，Agent令牌拒绝；前端同源cookie提交。已声明owner/user_id的任务检查归属；未声明归属的任务仍沿用本地单用户原型认证，不声称已完成生产多用户归属认证。
 
-POST字段：expected_revision（整数）、target_type（metric/check）、target_id、decision、reason；证据不足时另要求search_scope、missing_material、limitations非空。拒绝额外字段，不能提交新数值、操作者或人工确认状态。target_id必须是当前任务的当前有效记录，引用必须仍在该任务范围。操作中的任务返回RUN_BUSY；旧版本返回REVISION_CONFLICT。
+POST字段另接受resolution_evidence_ids（最多100个证据ID，仅resolve可非空）。expected_revision（整数）、target_type（metric/check）、target_id、decision、reason；证据不足时另要求search_scope、missing_material、limitations非空。拒绝额外字段，不能提交新数值、操作者或人工确认状态。target_id必须是当前任务的当前有效记录，引用必须仍在该任务范围。操作中的任务返回RUN_BUSY；旧版本返回REVISION_CONFLICT。
 
 保存时用同一SQLite事务记录操作者、UTC时间、原目标快照、报告版本/哈希、引用页码、处置内容与新revision。不改变原值或缺失标记。证据不足的指标仍为unreviewed，检查项按unknown处理；UI分别展示“已人工核查，证据不足”与“事实未证实”。
 
 指标处置使依赖检查失效，需要重建并复核；比较及旧导出过期，评分缓存清除。依赖于仍有效的指标不确定性，相关检查即使被后续模型写成met，评分仍按unknown处理，不能确认以绕过限制。现有METRIC_TO_CHECKS是保守依赖表，可能牵涉多项检查。
 
-每项处置保存目标指纹。目标值、证据、状态、来源或复核状态改变后，旧处置不再满足完成门槛；新record_id、过期记录亦不会继承旧处置。无关任务revision增加不会单独使全部处置失效。reopen保留审计但重新要求处理。
+每项处置保存目标指纹。目标值、证据、状态、来源或复核状态改变后，旧处置不再满足完成门槛，但未解决限制仍保留；人工修正版沿supersedes_id继承未解决限制，不能继承旧完成证明。页面和导出标记needs_recheck，评分继续受限。必须重新登记证据不足处置，或依据新增证据显式resolve；普通confirm不能消除限制。无关任务revision增加不会单独使全部处置失效。reopen保留审计与限制并重新要求处理。
 
 ## 运行与评分门槛
 
@@ -47,9 +48,9 @@ POST字段：expected_revision（整数）、target_type（metric/check）、tar
 
 ## 导出与兼容性
 
-- JSON新增review_dispositions，包含当前有效处置及证据、版本和人工信息。
+- JSON新增review_dispositions，包含当前有效处置和未解决的过期/继承限制及证据、版本和人工信息。
 - Markdown新增人工处置与使用限制段。
-- CSV在原指标列后追加review_decision、review_reason、search_scope、missing_material、use_limitations、review_target_type、review_target_id。检查项处置另占类型为check的行，指标列留空，不能当成指标数据行。所有新增单元格沿用公式注入防护。
+- CSV在原指标列后追加review_decision、review_reason、search_scope、missing_material、use_limitations、review_target_type、review_target_id、review_needs_recheck、review_source_target_id。检查项处置另占类型为check的行，指标列留空，不能当成指标数据行。所有新增单元格沿用公式注入防护。
 
 Agent领域工具和MetricRecord/DisclosureCheck schema未新增人工权限或伪造的事实状态。宿主通过可信任务数据向模型告知已有人工处置，最终仍重读后端状态判定。
 
@@ -68,4 +69,4 @@ Agent领域工具和MetricRecord/DisclosureCheck schema未新增人工权限或�
 
 建议dry-run报告分别列出：最终答案候选数、隔离pending数、被拒绝数及原因、正式检查映射和partial处置。抽查4条pending时，核对原始标记、caveat、所缺材料、评分不可用性和人工审计，并验证没有进入最终答案。该导入器及字段映射属于后续独立改动，本PR不能充当其测试通过证明。
 
-正式指标确认/修正接口另见同学独立分支的PR #9；本变更不包含或覆盖该PR，数值修正能力和两条线合并后的联调仍需单独验证。
+PR #10现已在codex合入PR #9的fc42181，保留原作者提交。指标确认/修正接口见《接口契约_指标复核_v0.2.md》，与人工处置共享事实证据支持校验。离线合并联调见docs/validation/pr9-pr10-integration-2026-11-26.md；真实模型及真实业务验收仍单独执行。

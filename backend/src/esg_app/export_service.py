@@ -10,7 +10,7 @@ from pathlib import Path
 from uuid import UUID
 
 from .exports import ArtifactStore, build_export_bundle
-from .review_dispositions import current_dispositions, effective_checks
+from .review_dispositions import visible_dispositions, effective_checks
 from .parse_repository import read_business, bound_reports
 from .parse_service import ParseError
 from .scoring import score_checks
@@ -95,7 +95,7 @@ class ExportService:
                     if r.get("report_id") in bound_reports(task)
                 ],
                 staged,
-                review_dispositions=current_dispositions(state),
+                review_dispositions=visible_dispositions(state),
             )
             response = envelope(task_id, revision, bundle)
             if not validate("export_analysis_output", response):

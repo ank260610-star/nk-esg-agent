@@ -106,6 +106,7 @@ def test_version_conflict_foreign_target_and_value_override_rejected(tmp_path):
 
 def test_marker_preserved_metric_disposition_invalidates_dependencies(tmp_path):
     app, c = setup(tmp_path)
+    app.state.evidence = EvidenceStore([Evidence('ev1','r1',127,None,'table','2023 范围3 / tCO2e')])
     with app.state.tasks.transaction() as db:
         s=read_business(db,'t');r=next(r for r in s['records'] if r['record_id']=='m3_2023')
         r.update(status='missing_marker', raw_value='/', value=None, review_state='unreviewed')

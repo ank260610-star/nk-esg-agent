@@ -471,7 +471,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         denied = require_user_session(x_user, x_agent_token, request)
         if denied:
             return denied
-        from .review_dispositions import current_dispositions, can_review
+        from .review_dispositions import current_dispositions, pending_uncertainties, can_review
         with app.state.tasks.transaction() as db:
             task = db.execute('SELECT revision,results FROM tasks WHERE task_id=?', (task_id,)).fetchone()
             if task is None:
@@ -479,7 +479,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if not can_review(json.loads(task[1]), x_user or request.cookies.get('esg_user')):
                 return JSONResponse(status_code=403, content=error_envelope('FORBIDDEN', 'Task belongs to another user'))
             state = read_business(db, task_id)
-        return dict(ok=True, data=dict(current=current_dispositions(state),
+        return dict(ok=True, data=dict(current=current_dispositions(state), pending=pending_uncertainties(state),
                     history=state.get('review_dispositions', [])), error=None, revision=task[0], task_id=task_id)
 
     @app.get("/", response_class=HTMLResponse)
@@ -530,10 +530,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Bound initial HTML size; referenced evidence is always available.
         evidence_by_id = {eid: ev for i, (eid, ev) in enumerate(evidence_by_id.items())
                           if eid in referenced or i < 20}
-        from .review_dispositions import current_dispositions
+        from .review_dispositions import visible_dispositions
         with app.state.tasks.transaction() as db:
             disposition_state = read_business(db, task_id) if task_id else dict(records=[], checks=[])
-        disposition_map = {(d['target_type'], d['target_id']): d for d in current_dispositions(disposition_state)}
+        disposition_map = {(d['target_type'], d['target_id']): d for d in visible_dispositions(disposition_state)}
         response = templates.TemplateResponse(request, "index.html", {
             "review_dispositions": disposition_map,
             "task": task_view,

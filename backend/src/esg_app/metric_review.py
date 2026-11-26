@@ -14,7 +14,7 @@ from decimal import Decimal, InvalidOperation
 from uuid import UUID, uuid4
 
 from .metrics import _unit_ok
-from .model_extractor import unit_identity
+from .model_extractor import unit_identity, UNIT_ALIASES, normalized
 from .parse_repository import bound_reports, read_business, save_business
 from .parse_service import ParseError
 from .review import METRIC_TO_CHECKS
@@ -76,13 +76,34 @@ def _evidence_supports(evidence, record: dict) -> bool:
         return False
     if evidence.column_year is not None and evidence.column_year != record.get("metric_year"):
         return False
-    text = re.sub(r"\s+", "", evidence.text or "").replace(",", "").casefold()
+    raw_text = evidence.text or ""
     if record.get("status") == "missing_marker":
-        marker = str(record.get("raw_value") or "").strip().casefold()
-        return bool(marker) and marker in text
+        marker = str(record.get("raw_value") or "").strip()
+        return marker in MARKERS and bool(re.search(r"(?<!\S)" + re.escape(marker) + r"(?!\S)", raw_text))
     if record.get("status") == "extracted":
-        value = record.get("value")
-        return isinstance(value, str) and _number_supported(value, text)
+        raw, value = record.get('raw_value'), record.get('value')
+        raw_unit, canonical = record.get('raw_unit'), record.get('canonical_unit')
+        if not all(isinstance(x, str) and x.strip() for x in [raw, value, raw_unit, canonical]):
+            return False
+        try:
+            if not Decimal(value).is_finite() or Decimal(raw.replace(',', '')) != Decimal(value):
+                return False
+        except InvalidOperation:
+            return False
+        if not _unit_ok(record.get('metric_id'), raw_unit) or not _unit_ok(record.get('metric_id'), canonical):
+            return False
+        if unit_identity(raw_unit) != unit_identity(canonical):
+            return False  # A free-form conversion explanation is not verified arithmetic.
+        compact = "".join(normalized(raw_text).split())
+        unit = "".join(normalized(raw_unit).split())
+        numerator, sep, denominator = unit.partition('/')
+        variants = {numerator}
+        for aliases in UNIT_ALIASES:
+            if numerator in aliases:
+                variants |= aliases
+        unit_present = any(re.search(r"(?<![a-z万千亿])" + re.escape(v + sep + denominator) + r"(?![a-z/])", compact)
+                           for v in variants)
+        return unit_present and _number_supported(value, raw_text)
     # unknown/conflict/parse_error 确认的是状态及其说明，不推定数值已提取。
     return True
 
@@ -154,7 +175,7 @@ def _merge_correction(record: dict, correction: dict, task_id: str, revision: in
             _fail("INVALID_INPUT", 400, "invalid correction: extracted cannot use a missing marker")
     if status == "missing_marker":
         marker = str(merged.get("raw_value") or "").strip()
-        if not marker:
+        if marker not in MARKERS:
             _fail("INVALID_INPUT", 400, "invalid correction: raw_value marker required")
     # 改变原值/单位/边界时，旧的换算说明与分母不得残留。
     changed = any(
@@ -228,9 +249,8 @@ def apply_metric_review(app, task_id: str, actor: str, body: dict, key: str | No
         if row is None:
             _fail("NOT_FOUND", 404, "task not found", task_id)
         revision, results = row[0], json.loads(row[1])
-        task_meta = results.get("task") or {}
-        owner = task_meta.get("owner") or task_meta.get("user_id") or results.get("owner")
-        if owner and owner != actor:
+        from .review_dispositions import can_review
+        if not can_review(results, actor):
             _fail("FORBIDDEN", 403, "task owner mismatch")
 
         # 幂等必须先于版本检查：断连后原请求重放不能被误判为 409。
@@ -245,6 +265,8 @@ def apply_metric_review(app, task_id: str, actor: str, body: dict, key: str | No
                     "Key was used for a different request", task_id, revision,
                 )
             return json.loads(replay[1])
+        if db.execute('SELECT 1 FROM agent_run_claims WHERE task_id=?', (task_id,)).fetchone():
+            _fail('RUN_BUSY', 409, 'Wait for the active run before reviewing', task_id, revision)
         if expected != revision:
             _fail(
                 "REVISION_CONFLICT", 409,
@@ -371,9 +393,8 @@ def audit_events(app, task_id: str, actor: str) -> list[dict]:
         if row is None:
             _fail("NOT_FOUND", 404, "task not found")
         results = json.loads(row[0])
-        task_meta = results.get("task") or {}
-        owner = task_meta.get("owner") or task_meta.get("user_id") or results.get("owner")
-        if owner and owner != actor:
+        from .review_dispositions import can_review
+        if not can_review(results, actor):
             _fail("FORBIDDEN", 403, "task owner mismatch")
         state = read_business(db, task_id)
     fields = (

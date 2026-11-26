@@ -10,7 +10,7 @@ from importlib.resources import files
 from .harness_runner import run_agent
 from .parse_repository import token_identity, read_business
 from .run_jobs import RunStatus
-from .review_dispositions import review_complete, current_dispositions, restricted_check_ids
+from .review_dispositions import review_complete, visible_dispositions, restricted_check_ids
 from .rules_registry import ALL_CHECK_IDS
 
 
@@ -30,10 +30,10 @@ def make_agent_starter(app, sdk_run=run_agent):
             .read_text(encoding="utf-8")
         )
         with app.state.tasks.transaction() as db:
-            approved = current_dispositions(read_business(db, task_id))
+            approved = visible_dispositions(read_business(db, task_id))
         payload = dict(
             human_review_dispositions=[{k: d.get(k) for k in
-                ['target_type', 'target_id', 'decision', 'limitations']} for d in approved],
+                ['target_type', 'target_id', 'decision', 'limitations', 'needs_recheck']} for d in approved],
             task_id=task_id,
             mode=mode,
             revision=task.revision,
@@ -125,7 +125,7 @@ def make_agent_starter(app, sdk_run=run_agent):
         ):
             raise RuntimeError("No current exported snapshot was observed")
         limited = mode != 'question' and any(d['decision'] == 'insufficient_evidence'
-                                               for d in current_dispositions(state))
+                                               for d in visible_dispositions(state))
         app.state.runs.complete(run_id, answer, revision, with_limitations=limited)
 
     return start

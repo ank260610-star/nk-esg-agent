@@ -217,7 +217,7 @@ def _render_csv(records: list[dict], dispositions=None) -> str:
     w.writerow(["metric_id", "metric_year", "raw_value", "value", "raw_unit",
                 "canonical_unit", "status", "origin", "evidence_ids", "extraction_note",
                 "review_decision", "review_reason", "search_scope", "missing_material", "use_limitations",
-                "review_target_type", "review_target_id"])
+                "review_target_type", "review_target_id", "review_needs_recheck", "review_source_target_id"])
     by_record = {d['target_id']: d for d in (dispositions or []) if d['target_type'] == 'metric'}
     for rec in records:
         review = by_record.get(rec.get('record_id'), {})
@@ -234,12 +234,13 @@ def _render_csv(records: list[dict], dispositions=None) -> str:
             csv_safe_cell(rec.get("extraction_note", "")),
             *[csv_safe_cell(review.get(k, "")) for k in ['decision', 'reason', 'search_scope', 'missing_material', 'limitations']],
             'metric', csv_safe_cell(rec.get('record_id', '')),
+            csv_safe_cell(review.get('needs_recheck', '')), csv_safe_cell(review.get('source_target_id', '')),
         ])
     for review in dispositions or []:
         if review['target_type'] == 'check':
             w.writerow([''] * 10 + [csv_safe_cell(review.get(k, '')) for k in
                         ['decision', 'reason', 'search_scope', 'missing_material', 'limitations']]
-                       + ['check', csv_safe_cell(review['target_id'])])
+                       + ['check', csv_safe_cell(review['target_id']), csv_safe_cell(review.get('needs_recheck', '')), csv_safe_cell(review.get('source_target_id', ''))])
     return buf.getvalue()
 
 
@@ -276,7 +277,7 @@ def build_export_bundle(task_id: str, expected_revision: int, current_revision: 
     }
     disposition_lines = ["", "## 人工核查处置与使用限制", "", "核查处置完成不等于数据已经证实；未知项不补零、不作确定同比。", ""]
     for item in review_dispositions:
-        for field in ['target_type', 'target_id', 'decision', 'reason', 'search_scope', 'missing_material', 'limitations', 'actor', 'at', 'revision']:
+        for field in ['target_type', 'target_id', 'decision', 'reason', 'search_scope', 'missing_material', 'limitations', 'actor', 'at', 'revision', 'needs_recheck', 'source_target_id', 'resolution_evidence_ids']:
             if field in item:
                 disposition_lines.append(f"- {field}: {item[field]}")
     contents = [
