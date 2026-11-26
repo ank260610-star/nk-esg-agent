@@ -37,6 +37,7 @@ from .export_service import ExportService
 from .web_presentation import STATUS_LABELS, METRIC_NAMES, present, percent, points, evidence_view
 from .rules_registry import ALL_CHECK_IDS
 from .write_service import WriteService, WRITES, envelope, validate
+from .metric_review import apply_metric_review, audit_events
 
 
 def error_envelope(code: str, message: str, retryable: bool = False) -> dict:
@@ -562,6 +563,45 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 return {}
         form = await request.form()
         return dict(form)
+
+    @app.post("/tasks/{task_id}/metric-reviews")
+    async def metric_review_route(task_id: str, request: Request,
+                                  x_agent_token: str | None = Header(default=None),
+                                  x_user: str | None = Header(default=None)):
+        """指标人工确认/修正：仅用户会话，Agent 令牌一律无效。"""
+        denied = require_user_session(x_user, x_agent_token, request)
+        if denied:
+            return denied
+        actor = x_user or request.cookies.get("esg_user")
+        body = await _read_submission(request)
+        if not isinstance(body, dict) or not body:
+            return JSONResponse(status_code=400, content=error_envelope(
+                "INVALID_INPUT", "invalid JSON"))
+        exported = app.state.artifacts.list_for_task(task_id)
+        artifact_ids = [a["artifact_id"] for a in exported if a.get("is_current")]
+        try:
+            return await run_in_threadpool(
+                apply_metric_review, app, task_id, actor, body,
+                request.headers.get("idempotency-key"), artifact_ids,
+            )
+        except ParseError as exc:
+            return JSONResponse(status_code=exc.status, content=exc.payload)
+        except Exception:
+            return JSONResponse(status_code=500, content=error_envelope(
+                "INTERNAL_ERROR", "Business operation failed"))
+
+    @app.get("/tasks/{task_id}/metric-reviews")
+    def metric_review_audit(task_id: str, request: Request,
+                            x_agent_token: str | None = Header(default=None),
+                            x_user: str | None = Header(default=None)):
+        denied = require_user_session(x_user, x_agent_token, request)
+        if denied:
+            return denied
+        actor = x_user or request.cookies.get("esg_user")
+        rec = app.state.tasks.get(task_id)
+        revision = rec.revision if rec is not None else 0
+        return {"ok": True, "data": {"events": audit_events(app, task_id, actor)},
+                "error": None, "task_id": task_id, "revision": revision}
 
     @app.post("/tasks/{task_id}/exports")
     async def create_export(task_id: str, request: Request,
