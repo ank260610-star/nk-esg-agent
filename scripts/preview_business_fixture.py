@@ -49,6 +49,13 @@ def fixture_app(directory: Path, uncertain_first=False):
     pdf = directory / "fixture.pdf"
     c = canvas.Canvas(str(pdf))
     c.drawString(60, 760, "OFFLINE BROWSER FIXTURE - NOT A CORPORATE REPORT")
+    for index, line in enumerate([
+        "2024 E01: 0 tCO2e",
+        "2024 E02: / tCO2e per CNY 10,000 revenue",
+        "2024 E02 supplemental fixture evidence: 0.1300 tCO2e per CNY 10,000 revenue",
+        "2024 E03: 0.1300 tCO2e",
+    ]):
+        c.drawString(60, 720 - index * 20, line)
     c.save()
     app.state.tasks.register_report_path(report_id, pdf)
     app.state.evidence = EvidenceStore(
@@ -59,8 +66,11 @@ def fixture_app(directory: Path, uncertain_first=False):
                 1,
                 None,
                 "table",
-                "离线测试夹具：原值 0、/、0.1300；<img src=x onerror=alert(1)> 为普通文本。",
+                "离线测试夹具，2024年：\nE01 0 tCO2e；\nE02 / tCO2e/万元营收；\n"
+                "E02 测试补证 0.1300 tCO2e/万元营收；\nE03 0.1300 tCO2e；\n"
+                "<img src=x onerror=alert(1)> 为普通文本。",
                 viewer_url="https://ignored.invalid",
+                column_year=2024,
             )
         ]
     )
@@ -109,7 +119,7 @@ def fixture_app(directory: Path, uncertain_first=False):
                 "revision": 7,
                 "review_state": "unreviewed",
                 "is_current": True,
-                "extraction_note": "仅用于界面验收，单位与指标不代表正式映射",
+                "extraction_note": "仅用于离线界面验收，数值不代表真实企业",
             }
         )
     with app.state.tasks.transaction() as db:
