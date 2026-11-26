@@ -35,7 +35,12 @@ STATUSES = frozenset(
     {"extracted", "missing_marker", "unknown", "conflict", "parse_error"}
 )
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
-NUMBER_RE = re.compile(r"-?\d+(?:,\d{3})*(?:\.\d+)?")
+# 完整数值 token：左右边界禁止紧邻数字或小数点（.1 不得拆出 1、0.1300 不得拆出
+# 1300）；整数部分允许严格千分位（1,000.00）；科学计数法整体匹配（1.23e4 不得
+# 拆成 1.23 或 4）。匹配结果在原文上取，禁止把换行／空格拼接成新数字。
+NUMBER_RE = re.compile(
+    r"(?<![\d.,])[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:[eE][-+]?\d+)?(?![\d.,])"
+)
 MARKERS = ("/", "—", "未披露", "未统计")
 
 
