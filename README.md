@@ -6,6 +6,8 @@
 
 真实模型与十工具接入、配置及验证边界见[接入说明](docs/live-integration.md)。
 
+真实业务三栏页面的检查复核、运行状态、证据和服务端下载已接入；指标确认仍待用户接口。启动、字段映射与第一阶段验收见[前端业务接入说明](docs/frontend-phase1.md)。
+
 业务写入与导出接口、恢复边界见[写入验收说明](docs/write-tool-acceptance.md)。
 
 启动、可信宿主登记与解析验收边界见[parse_report 接入说明](docs/parse-report-acceptance.md)。

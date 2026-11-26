@@ -1,133 +1,84 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ESG 披露质量评估 · 本地业务页</title>
-<link rel="stylesheet" href="/static/style.css">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>澄境 · 环境披露业务工作台</title>
+<link rel="stylesheet" href="/static/business.css?v=phase1b"><script type="module" src="/static/js/business.js?v=phase1c"></script>
 </head>
 <body>
-<header>
-  <h1>ESG 披露质量评估（本地原型）</h1>
-  <p class="sub">自建试验规则，非官方评分；服务仅绑定 127.0.0.1，不对外发布。</p>
-</header>
-
+<a class="skip" href="#metrics">跳到指标与证据</a>
+<header class="topbar"><a class="brand" href="/">◉ 澄境 <small>CLEAR ESG</small></a><span>环境披露分析工作台</span><span class="badge">{{ "离线测试夹具 · 非真实分析" if is_fixture else "真实业务数据 · 本地原型" }}</span></header>
+<div id="feedback" role="status" aria-live="polite" hidden></div>
+<div id="business-root" data-task-id="{{ task.task_id if task else '' }}" data-revision="{{ task.revision if task else '' }}">
 {% if not task %}
-<section class="panel"><h2>报告导入</h2>
-  <p>当前还没有任务。请先在业务后端登记报告并创建任务（导入流程由业务仓储完成）。</p>
-</section>
+<main class="empty panel"><h1>报告导入与任务</h1><p>当前没有任务。请先通过可信业务宿主登记报告并创建任务，再使用任务链接打开工作台。</p><p>页面不会回退到模拟数据。上传与任务创建接口尚未接入。</p><button disabled>上传接口待提供</button></main>
 {% else %}
-<nav>
-  <a href="#import">报告导入</a>
-  <a href="#evidence">指标与证据</a>
-  <a href="#score">评分与未知项</a>
-  <a href="#review">人工复核</a>
-  <a href="#export">导出</a>
-</nav>
-
-<section class="panel" id="import">
-  <h2>① 报告导入与任务</h2>
-  <table><tbody>
-    <tr><th>任务</th><td>{{ task.task_id }}</td></tr>
-    <tr><th>阶段 / 版本</th><td>{{ task.stage or 'metrics' }} / revision {{ task.revision }}</td></tr>
-    <tr><th>报告集</th><td>{{ report_ids|join('、') or '（未登记）' }}</td></tr>
-  </tbody></table>
-  <form method="post" action="/tasks/{{ task.task_id }}/agent-runs" class="run-form">
-    <input type="hidden" name="mode" value="full_evaluation">
-    <input type="hidden" name="expected_revision" value="{{ task.revision }}">
-    <button type="submit">启动智能体任务（用户会话）</button>
-  </form>
-  {% if runs %}
-  <h3>运行状态</h3>
-  <ul>{% for run in runs %}
-    <li>{{ run.run_id[:12] }}… · {{ run.status }}{% if run.answer %} · {{ run.answer }}{% endif %}</li>
-  {% endfor %}</ul>
-  {% endif %}
-</section>
-
-<section class="panel" id="evidence">
-  <h2>② 指标与证据</h2>
-  <table>
-    <thead><tr><th>指标</th><th>年度</th><th>原值</th><th>规范值</th><th>单位</th><th>状态</th><th>证据</th></tr></thead>
-    <tbody>
-      {% for r in records %}
-      <tr>
-        <td>{{ r.metric_id }}</td><td>{{ r.metric_year }}</td>
-        <td>{{ r.raw_value }}</td><td>{{ r.value if r.value is not none else '' }}</td>
-        <td>{{ r.canonical_unit or r.raw_unit or '' }}</td>
-        <td>{{ r.status }}</td>
-        <td>{% for eid in r.evidence_ids %}
-          {% set ev = evidence_by_id.get(eid) %}
-          {% if ev %}<a href="{{ ev.viewer_url }}" target="_blank" rel="noopener">{{ eid }} · PDF p{{ ev.pdf_page }}</a>{% else %}{{ eid }}{% endif %}
-        {% endfor %}</td>
-      </tr>
-      {% else %}<tr><td colspan="7">（尚未提取指标）</td></tr>{% endfor %}
-    </tbody>
-  </table>
-  {% if comparisons %}
-  <h3>跨年比较</h3>
-  <ul>{% for c in comparisons %}
-    <li>{{ c.metric_id }}：{{ c.status }}{% if c.percent_change %} · {{ c.percent_change }}%{% endif %}</li>
-  {% endfor %}</ul>
-  {% endif %}
-  <h3>证据摘录（来自不可信报告原文，已按 HTML 转义）</h3>
-  <ul>{% for ev in evidence_by_id.values() %}
-    <li><a href="{{ ev.viewer_url }}" target="_blank" rel="noopener">{{ ev.evidence_id }} · PDF p{{ ev.pdf_page }}</a>
-      — {{ ev.text }}</li>
-  {% endfor %}</ul>
-</section>
-
-<section class="panel" id="score">
-  <h2>③ 评分与未知项</h2>
-  {% if score %}
-  <p>覆盖率 {{ score.coverage }}｜参考分 {{ score.reference_score }}｜区间
-     [{{ score.lower_bound }}, {{ score.upper_bound }}]｜最终分 {{ score.final_score or '未定' }}</p>
-  <p class="warn">标签：{{ score.label }}。unknown 不计 0 分；N/A 仅人工确认后生效。</p>
-  {% else %}<p>（还没有评分结果）</p>{% endif %}
-  <h3>检查项</h3>
-  <table>
-    <thead><tr><th>检查</th><th>状态</th><th>来源</th><th>说明</th></tr></thead>
-    <tbody>{% for c in checks %}
-      <tr><td>{{ c.check_id }}</td><td>{{ c.status }}</td>
-        <td>{{ c.origin }}</td>
-        <td>{{ c.reason or c.missing_information or '' }}</td></tr>
-    {% else %}<tr><td colspan="4">（尚无检查项）</td></tr>{% endfor %}</tbody>
-  </table>
-</section>
-
-<section class="panel" id="review">
-  <h2>④ 人工复核（独立用户会话）</h2>
-  <p class="warn">智能体 / Agent 令牌无权复核；每次修改必须填写理由，旧 revision 结果自动失效。</p>
-  <form method="post" action="/tasks/{{ task.task_id }}/review" class="review-form">
-    <label>检查项 <select name="check_id">
-      {% for check_id in check_ids %}<option value="{{ check_id }}">{{ check_id }}</option>{% endfor %}
-    </select></label>
-    <label>状态 <select name="new_status">
-      <option value="met">met</option><option value="partial">partial</option>
-      <option value="not_met">not_met</option><option value="unknown">unknown</option>
-    </select></label>
-    <label>理由 <input name="reason" required placeholder="必填：复核依据"></label>
-    <input type="hidden" name="expected_revision" value="{{ task.revision }}">
-    <button type="submit">提交复核</button>
-  </form>
-</section>
-
-<section class="panel" id="export">
-  <h2>⑤ 同版本导出</h2>
-  <form method="post" action="/tasks/{{ task.task_id }}/exports" class="run-form">
-    <input type="hidden" name="expected_revision" value="{{ task.revision }}">
-    <button type="submit">生成 Markdown / CSV / JSON</button>
-  </form>
-  {% if artifacts %}
-  <ul>{% for a in artifacts %}
-    <li><a href="{{ a.download_url }}">{{ a.filename }}</a>
-      · revision {{ a.revision }}
-      {% if a.is_current %}<span class="ok">当前版本</span>{% else %}<span class="warn">已过期</span>{% endif %}
-    </li>
-  {% endfor %}</ul>
-  {% endif %}
-</section>
+{% set latest = runs[0] if runs else none %}
+{% set run_status = latest.status.value if latest else '' %}
+{% set busy = run_status in ['queued', 'running'] %}
+<div class="workspace" data-run-id="{{ latest.run_id if latest else '' }}" data-run-status="{{ run_status }}">
+<aside class="sidebar">
+  <div class="section-label">WORKSPACE</div><h1>报告与任务</h1>
+  <div class="task-id">{{ task.task_id }}</div>
+  <dl><dt>当前版本</dt><dd>revision {{ task.revision }}</dd><dt>业务阶段</dt><dd>{{ task.stage }}</dd><dt>企业ID</dt><dd>{{ task.company_id|present }}</dd><dt>选定指标年度</dt><dd>{{ task.selected_years|join('、') or '待补齐' }}</dd></dl>
+  <h2>报告集</h2>
+  {% for report in report_metadata %}
+  <article class="report-card"><strong>{{ report.company_name|present }}</strong><p>{{ report.report_year|present }}年度 · {{ report.report_id }}</p><small>SHA-256：{{ report.sha256|present }}</small><small>解析版本：{{ report.parser_version|present }}</small><a href="/api/reports/{{ report.report_id|urlencode }}/pdf#page=1" target="_blank" rel="noopener">查看登记PDF</a></article>
+  {% else %}<p class="muted">报告元数据待补齐。</p>{% endfor %}
+  <p class="muted">绑定报告：{{ report_ids|join('、') or '未登记' }}</p>
+  <button disabled>报告导入接口待接入</button>
+  <div class="sidebar-bottom"><p>自建试验规则，非官方评分。</p><p>本地用户会话不能作为生产认证；尚未开放公网。</p></div>
+</aside>
+<main class="analysis" tabindex="0">
+  <div class="panel-heading"><div><div class="section-label">ANALYSIS</div><h2>指标与证据</h2></div><button type="button" data-refresh>刷新任务</button></div>
+  <section class="run-card" aria-label="运行状态">
+    <div><h3>智能体运行</h3><span class="status">{{ run_status|status_label if run_status else '尚未运行' }}</span></div>
+    {% if run_status == 'waiting_review' %}<p class="warn">当前暂停，等待人工处理。请检查未知指标及待复核建议。指标确认接口尚未提供；继续原会话不代表已满足整链验收。</p>
+    {% elif run_status == 'completed' %}<p>本轮运行结束，请核对结果和版本；不等于Task 7项目验收通过。</p>
+    {% elif busy %}<p>任务正在执行。仅显示服务端状态，不模拟阶段完成进度。</p>
+    {% elif run_status == 'failed' %}<p class="warn">运行失败：{{ latest.error|present }}</p>
+    {% elif run_status == 'cancelled' %}<p>服务端已取消本轮运行。</p>{% endif %}
+    {% if not runner_available %}<p class="muted">运行宿主未配置：可以查看、复核检查项和导出，不能启动或继续模型任务。</p>{% endif %}
+    <div class="run-actions">
+      <form data-operation="run" data-draft="start" action="/tasks/{{ task.task_id|urlencode }}/agent-runs" method="post"><input type="hidden" name="mode" value="full_evaluation"><input type="hidden" name="expected_revision" value="{{ task.revision }}"><button type="submit" {% if busy or not runner_available %}disabled{% endif %}>启动分析</button></form>
+      <form data-operation="run" data-draft="resume" action="/tasks/{{ task.task_id|urlencode }}/agent-runs" method="post"><input type="hidden" name="mode" value="resume"><input type="hidden" name="expected_revision" value="{{ task.revision }}"><button type="submit" {% if busy or not runner_available or run_status != 'waiting_review' %}disabled{% endif %}>继续原会话</button></form>
+    </div><p class="muted">取消接口尚未提供，页面不提供假取消按钮。超时或断连时先查询状态。</p>
+  </section>
+  <div class="tabs" role="tablist" aria-label="分析区域"><button role="tab" id="metrics-tab" aria-controls="metrics" aria-selected="true" data-panel="metrics">核心指标 <span>{{ records|length }}</span></button><button role="tab" id="questions-tab" aria-controls="questions" aria-selected="false" tabindex="-1" data-panel="questions">分析与问答</button></div>
+  <section id="metrics" role="tabpanel" aria-labelledby="metrics-tab">
+    <p class="muted">按服务端有效记录展示，提取状态与人工确认状态独立。原值保留原文精度。</p>
+    {% for r in records %}
+    <article class="metric-card"><div class="metric-title"><h3>{{ r.metric_id }} · {{ r.metric_year }}年<br><small>{{ metric_names.get(r.metric_id, r.metric_id) }}</small></h3><span class="badge">{{ r.status|status_label }}</span><span class="badge">{{ r.review_state|default('unreviewed')|status_label }}</span></div>
+      <dl class="metric-values"><dt>原值 / 原单位</dt><dd>{{ r.raw_value|present }} <small>{{ r.raw_unit|present }}</small></dd><dt>标准值 / 标准单位</dt><dd>{{ r.value|present }} <small>{{ r.canonical_unit|present }}</small></dd></dl>
+      <p>来源：{{ r.origin|present }} · 报告 {{ r.report_id|present }}</p>
+      {% if r.extraction_note %}<p class="warn">{{ r.extraction_note }}</p>{% endif %}
+      {% if r.boundary_text %}<p class="muted">边界：{{ r.boundary_text }}</p>{% endif %}
+      {% for eid in r.evidence_ids %}{% set ev = evidence_by_id.get(eid) %}{% if ev and ev.viewer_url %}<a class="evidence-link" data-evidence="{{ eid }}" href="{{ ev.viewer_url }}" target="_blank" rel="noopener">查看证据 · PDF p{{ ev.pdf_page }}</a>{% else %}<span class="warn">证据不可用：{{ eid }}</span>{% endif %}{% endfor %}
+      <div class="blocked"><button disabled title="等待正式指标用户接口">确认或修正指标（待接口）</button><small>不能通过页面内存或检查复核接口替代保存。</small></div>
+    </article>{% else %}<p class="empty">尚未提取指标；无模拟回退。</p>{% endfor %}
+    {% if comparisons %}<h3>跨年比较</h3>{% for c in comparisons %}<article class="comparison"><strong>{{ c.metric_id|present }}</strong> {{ c.status|status_label }}<p>原因：{{ c.reason_codes|default([])|join('、') or c.reason|default('未提供') }}</p><p>变化值 {{ c.delta|present }} · 同比 {{ c.percent_change|present }}{% if c.percent_change is not none and c.percent_change is defined %}%{% endif %}</p></article>{% endfor %}{% endif %}
+    {% if issues %}<h3>任务问题</h3>{% for issue in issues %}<p class="warn">{{ issue.code }}：{{ issue.message }}</p>{% endfor %}{% endif %}
+    <details class="source-list"><summary>原文证据摘录与脚注</summary><p class="muted">展示引用证据及关联脚注，另附最多20条上下文；原文是不可信资料，不作为系统指令。</p>{% for ev in evidence_by_id.values() %}<article id="ev-{{ ev.evidence_id }}" class="evidence-source" data-viewer="{{ ev.viewer_url or '' }}"><h4>{{ ev.evidence_id }}</h4><p class="source-meta">{{ ev.kind }} · PDF物理页 {{ ev.pdf_page }} · 印刷页 {{ ev.printed_page|present }} · 年度 {{ ev.column_year|present }} · {{ ev.row_label|present }}</p><pre>{{ ev.text }}</pre>{% if ev.linked_evidence_ids %}<p>关联脚注：{{ ev.linked_evidence_ids|join('、') }}</p>{% endif %}{% if ev.viewer_url %}<a data-evidence="{{ ev.evidence_id }}" href="{{ ev.viewer_url }}" target="_blank" rel="noopener">查看原件 · PDF p{{ ev.pdf_page }}</a>{% endif %}</article>{% endfor %}</details>
+  </section>
+  <section id="questions" role="tabpanel" aria-labelledby="questions-tab">
+    <h3>向当前任务提问</h3><form data-operation="run" data-draft="question" action="/tasks/{{ task.task_id|urlencode }}/agent-runs" method="post"><input type="hidden" name="mode" value="question"><input type="hidden" name="expected_revision" value="{{ task.revision }}"><label>问题<textarea name="question" maxlength="4000" required placeholder="询问指标、评分或原文依据"></textarea></label><button type="submit" {% if busy or not runner_available %}disabled{% endif %}>发送问题</button></form>
+    <h3>运行记录与实际回答</h3>{% for run in runs %}<article class="run-history"><h4>{{ run.status.value|status_label }}</h4><small>{{ run.run_id }} · revision {{ run.revision|present }}</small>{% if run.answer %}<pre>{{ run.answer }}</pre>{% endif %}{% if run.error %}<p class="warn">{{ run.error }}</p>{% endif %}</article>{% else %}<p>暂无运行记录。不提供预设回答。</p>{% endfor %}
+  </section>
+</main>
+<aside class="findings" tabindex="0">
+  <div class="section-label">FINDINGS</div><h2>评分与未知项</h2>
+  {% if score %}<section class="score-card"><p class="warn">{{ score.label|status_label }} · 项目自建试验规则</p><dl><dt>证据覆盖率</dt><dd>{{ score.coverage|percentage }}</dd><dt>参考分</dt><dd>{{ score.reference_score|points }}</dd><dt>可能区间</dt><dd>[{{ score.lower_bound|points }}, {{ score.upper_bound|points }}]</dd><dt>最终分</dt><dd>{{ score.final_score|points }}</dd></dl><p class="muted">未知不计0；未复核建议不能视为已认可结论。</p></section>{% else %}<p>还没有有效评分结果。</p>{% endif %}
+  <h2 id="review">人工复核 · 检查建议</h2><p class="muted">理由必填。保存后以服务器新版本刷新全页；N/A等复杂操作暂未接入。</p>
+  {% for c in checks %}<details class="check-card" {% if loop.first %}open{% endif %}><summary>{{ c.check_id }} · {{ c.status|status_label }} <small>{{ c.review_state|default('unreviewed')|status_label }}</small></summary><p>{{ rule_titles.get(c.check_id, c.check_id) }}</p><p>来源：{{ c.origin|present }}</p><p>{{ c.reason or c.missing_information or '未提供判定理由' }}</p>{% if c.suggestion %}<p>建议：{{ c.suggestion }}</p>{% endif %}
+    {% for eid in c.evidence_ids|default([]) %}{% set ev=evidence_by_id.get(eid) %}{% if ev and ev.viewer_url %}<a data-evidence="{{ eid }}" href="{{ ev.viewer_url }}" target="_blank" rel="noopener">证据 · PDF p{{ ev.pdf_page }}</a>{% else %}<span class="warn">证据缺失：{{ eid }}</span>{% endif %}{% endfor %}
+    <form data-operation="review" data-draft="check-{{ c.check_id }}" action="/tasks/{{ task.task_id|urlencode }}/review" method="post"><input type="hidden" name="action" value="set_check_status"><input type="hidden" name="check_id" value="{{ c.check_id }}"><input type="hidden" name="expected_revision" value="{{ task.revision }}"><label>复核状态<select name="new_status"><option value="unknown">未知</option><option value="met">满足</option>{% if c.check_id not in ['Q02'] %}<option value="partial">部分满足</option>{% endif %}<option value="not_met">不满足</option></select></label><label>复核理由<textarea name="reason" required maxlength="2000" placeholder="说明原文依据或确认未披露的检查过程"></textarea></label><button type="submit" {% if busy %}disabled{% endif %}>保存 {{ c.check_id }} 复核</button></form>
+  </details>{% else %}<p>尚无检查建议，无法逐项复核。</p>{% endfor %}
+  <section id="export"><h2>当前版本导出</h2><form data-operation="export" data-draft="export" action="/tasks/{{ task.task_id|urlencode }}/exports" method="post"><input type="hidden" name="expected_revision" value="{{ task.revision }}"><button type="submit" {% if busy %}disabled{% endif %}>生成 Markdown / CSV / JSON</button></form><p class="muted">保存成功后重新取得服务端产物；页面不自行生成分析报告。</p>
+  <ul class="artifacts">{% for a in artifacts %}<li><span class="artifact-name">{{ a.filename }}</span><button type="button" data-artifact data-url="/api/artifacts/{{ a.artifact_id|urlencode }}" data-filename="{{ a.filename }}" aria-label="下载 v{{ a.revision }} {{ a.filename.rsplit('.', 1)[-1]|upper }}">下载 {{ a.filename.rsplit('.', 1)[-1]|upper }}</button><small>revision {{ a.revision }} · {% if a.is_current and a.revision == task.revision %}<span class="ok">当前版本</span>{% else %}<span class="warn">已过期</span>{% endif %}</small></li>{% else %}<li>尚未生成导出文件。</li>{% endfor %}</ul></section>
+</aside>
+</div>
 {% endif %}
-<footer>本地原型 · 不使用 SDK 开发者工具列表与密钥 · 所有导出与评分绑定任务 revision</footer>
-</body>
-</html>
+</div>
+<dialog id="evidence-dialog" aria-labelledby="evidence-heading"><div class="drawer-heading"><h2 id="evidence-heading">证据查看</h2><button type="button" id="close-evidence">关闭证据</button></div><div class="drawer-body"><p id="evidence-meta"></p><pre id="evidence-text"></pre><p id="pdf-status" role="status"></p><a id="pdf-link" target="_blank" rel="noopener">新窗口查看原件</a><iframe id="pdf-frame" title="登记报告原件" hidden></iframe><p class="muted">PDF物理页与印刷页分别显示；浏览器未跳页时请手动定位。指标修正等待正式用户接口。</p></div></dialog>
+<footer>本地业务工作台 · 所有评分、复核和导出以服务端版本为准</footer>
+</body></html>

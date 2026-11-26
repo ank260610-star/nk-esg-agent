@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import json
 from uuid import uuid4
+from urllib.parse import quote
 from copy import deepcopy
 import re
 from pathlib import Path
@@ -33,6 +34,7 @@ from .scoring import load_rulebook, score_checks as do_score
 from .review import ReviewStore, ReviewCommand, apply_review as do_review, ReviewError
 from .exports import ArtifactStore
 from .export_service import ExportService
+from .web_presentation import STATUS_LABELS, METRIC_NAMES, present, percent, points, evidence_view
 from .rules_registry import ALL_CHECK_IDS
 from .write_service import WriteService, WRITES, envelope, validate
 
@@ -97,6 +99,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     _pkg = Path(__file__).resolve().parent
     templates = Jinja2Templates(directory=str(_pkg / "templates"))
+    templates.env.filters.update(present=present, percentage=percent, points=points, status_label=lambda value: STATUS_LABELS.get(str(value), str(value)))
     app.mount("/static", StaticFiles(directory=str(_pkg / "static")), name="static")
 
     @app.get("/health")
@@ -449,9 +452,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         rec = store.get(task_id) if task_id else None
         if task_id and rec is None:
             return HTMLResponse("<h1>404 · 任务不存在</h1>", status_code=404)
-        evidence_by_id = {e.evidence_id: e for e in task_evidence(task_id)} if task_id else {}
+        evidence_by_id = {e.evidence_id: evidence_view(e) for e in task_evidence(task_id)} if task_id else {}
         checks = app.state.checks.get(task_id, []) if task_id else []
         comparisons = app.state.comparisons_by_task.get(task_id, [])
+        business = {}
         if task_id and hasattr(store, 'transaction'):
             with store.transaction() as db:
                 if db.execute('SELECT 1 FROM business_state WHERE task_id=?', (task_id,)).fetchone():
@@ -471,9 +475,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             results = rec.results or {}
             task_view = {
                 "task_id": task_id, "revision": rec.revision,
-                "stage": results.get("stage", "metrics"),
+                "stage": results.get("stage", results.get("task", {}).get("stage", "metrics")),
+                "company_id": results.get("task", {}).get("company_id"),
+                "selected_years": results.get("task", {}).get("selected_years", []),
                 "report_ids": bound_reports(results),
             }
+        results = rec.results if rec else {}
+        report_metadata = [r for r in (results or {}).get('reports', [])
+                           if isinstance(r, dict) and r.get('report_id') in (task_view or {}).get('report_ids', [])]
+        referenced = {eid for item in [*records, *checks] for eid in item.get('evidence_ids', [])}
+        for eid, ev in list(evidence_by_id.items()):
+            if eid in referenced:
+                referenced.update(ev.get('linked_evidence_ids', []))
+        # Bound initial HTML size; referenced evidence is always available.
+        evidence_by_id = {eid: ev for i, (eid, ev) in enumerate(evidence_by_id.items())
+                          if eid in referenced or i < 20}
         response = templates.TemplateResponse(request, "index.html", {
             "task": task_view,
             "report_ids": (task_view or {}).get("report_ids", []),
@@ -485,8 +501,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "runs": list(reversed(app.state.runs.list_for_task(task_id))) if task_id else [],
             "artifacts": artifacts,
             "check_ids": list(ALL_CHECK_IDS),
+            "report_metadata": report_metadata,
+            "metric_names": METRIC_NAMES,
+            "is_fixture": (results or {}).get("task", {}).get("is_fixture") is True,
+            "rule_titles": {c['check_id']: c['title'] for c in app.state.rulebook['checks']},
+            "runner_available": app.state.agent_starter is not None,
+            "issues": business.get('issues', []),
         })
         # 本地单用户原型：访问页面即建立会话 cookie，浏览器表单无需手写 header
+        response.headers["Cache-Control"] = "no-store"
         response.set_cookie("esg_user", "local_user", httponly=True, samesite="lax")
         return response
 
@@ -524,6 +547,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return JSONResponse(status_code=404, content=error_envelope("NOT_FOUND", "artifact not found"))
         headers = {"X-Artifact-Revision": str(meta["revision"]),
                    "X-Artifact-Current": "true" if meta["is_current"] else "false",
+                   "Content-Disposition": "attachment; filename*=UTF-8''" + quote(meta["filename"], safe=""),
                    "Cache-Control": "no-store"}
         return Response(content, media_type=meta["media_type"], headers=headers)
 
