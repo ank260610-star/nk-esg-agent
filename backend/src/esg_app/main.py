@@ -470,11 +470,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         denied = require_user_session(x_user, x_agent_token, request)
         if denied:
             return denied
-        from .review_dispositions import current_dispositions
+        from .review_dispositions import current_dispositions, can_review
         with app.state.tasks.transaction() as db:
-            task = db.execute('SELECT revision FROM tasks WHERE task_id=?', (task_id,)).fetchone()
+            task = db.execute('SELECT revision,results FROM tasks WHERE task_id=?', (task_id,)).fetchone()
             if task is None:
                 return JSONResponse(status_code=404, content=error_envelope('NOT_FOUND', 'Task not found'))
+            if not can_review(json.loads(task[1]), x_user or request.cookies.get('esg_user')):
+                return JSONResponse(status_code=403, content=error_envelope('FORBIDDEN', 'Task belongs to another user'))
             state = read_business(db, task_id)
         return dict(ok=True, data=dict(current=current_dispositions(state),
                     history=state.get('review_dispositions', [])), error=None, revision=task[0], task_id=task_id)

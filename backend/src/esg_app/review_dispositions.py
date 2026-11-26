@@ -11,6 +11,12 @@ from .review import invalidate_checks_for_metric
 from .rules_registry import METRIC_TO_CHECKS
 
 
+def can_review(metadata, actor):
+    owners = [scope.get(key) for scope in [metadata, metadata.get('task', {})]
+              for key in ['owner', 'user_id'] if scope.get(key)]
+    return not owners or all(owner == actor for owner in owners)
+
+
 def target_fingerprint(target):
     # Unrelated task writes must not reopen a review; changes to the record do.
     payload = {k: v for k, v in target.items() if k != 'revision'}
@@ -72,14 +78,21 @@ def save_disposition(app, task_id, actor, body, evidence):
         raise ParseError('INVALID_INPUT', 422, 'Invalid review target or decision')
     if not isinstance(body.get('target_id'), str) or not 1 <= len(body['target_id']) <= 128:
         raise ParseError('INVALID_INPUT', 422, 'Invalid target ID')
-    for field in ['reason'] + (['search_scope', 'missing_material', 'limitations'] if body['decision'] == 'insufficient_evidence' else []):
-        if not isinstance(body.get(field), str) or not body[field].strip() or len(body[field]) > 4000:
-            raise ParseError('INVALID_INPUT', 422, f'{field} is required (at most 4000 characters)')
+    fields = ['reason', 'search_scope', 'missing_material', 'limitations']
+    required = fields if body['decision'] == 'insufficient_evidence' else ['reason']
+    for field in fields:
+        if field in body and (not isinstance(body[field], str) or len(body[field]) > 4000):
+            raise ParseError('INVALID_INPUT', 422, f'{field} must be text (at most 4000 characters)')
+        if field in required and not body.get(field, '').strip():
+            raise ParseError('INVALID_INPUT', 422, f'{field} is required')
     available = {e.evidence_id: e for e in evidence(task_id)}
     with app.state.tasks.transaction() as db:
         row = db.execute('SELECT revision,results FROM tasks WHERE task_id=?', (task_id,)).fetchone()
         if row is None:
             raise ParseError('NOT_FOUND', 404, 'Task not found')
+        metadata = json.loads(row[1])
+        if not can_review(metadata, actor):
+            raise ParseError('FORBIDDEN', 403, 'Task belongs to another user')
         if revision != row[0]:
             raise ParseError('REVISION_CONFLICT', 409, 'Task changed; refresh before reviewing', task_id, row[0])
         if db.execute('SELECT 1 FROM agent_run_claims WHERE task_id=?', (task_id,)).fetchone():

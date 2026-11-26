@@ -27,7 +27,7 @@
 - `POST /tasks/{task_id}/review-dispositions`
 - `GET /tasks/{task_id}/review-dispositions`：返回current与history。
 
-仅接受用户会话，Agent令牌拒绝；前端同源cookie提交。仍沿用本地单用户原型认证，不声称已完成生产多用户归属认证。
+仅接受用户会话，Agent令牌拒绝；前端同源cookie提交。已声明owner/user_id的任务检查归属；未声明归属的任务仍沿用本地单用户原型认证，不声称已完成生产多用户归属认证。
 
 POST字段：expected_revision（整数）、target_type（metric/check）、target_id、decision、reason；证据不足时另要求search_scope、missing_material、limitations非空。拒绝额外字段，不能提交新数值、操作者或人工确认状态。target_id必须是当前任务的当前有效记录，引用必须仍在该任务范围。操作中的任务返回RUN_BUSY；旧版本返回REVISION_CONFLICT。
 
@@ -67,3 +67,5 @@ Agent领域工具和MetricRecord/DisclosureCheck schema未新增人工权限或�
 4. **dry-run。** 先取得实际导入映射及其契约，在任务副本或staging校验obs_id/evidence_id/report_id、报告哈希、年度、单位、引用页、重复/外任务ID、规则映射、可用性与pending标记。dry-run不写生产数据，也不产生模型调用。`usable_for_scoring=false`、`pending`不得被忽略或映射为confirmed；未知标记或冲突字段应拒绝/隔离，不能按真值字符串处理。usable=true也不直接等于人工已确认。
 
 建议dry-run报告分别列出：最终答案候选数、隔离pending数、被拒绝数及原因、正式检查映射和partial处置。抽查4条pending时，核对原始标记、caveat、所缺材料、评分不可用性和人工审计，并验证没有进入最终答案。该导入器及字段映射属于后续独立改动，本PR不能充当其测试通过证明。
+
+正式指标确认/修正接口另见同学独立分支的PR #9；本变更不包含或覆盖该PR，数值修正能力和两条线合并后的联调仍需单独验证。

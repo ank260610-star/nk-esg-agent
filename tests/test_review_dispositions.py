@@ -219,3 +219,25 @@ def test_metric_uncertainty_keeps_dependent_score_unknown_after_new_proposals(tm
     result=score_checks(effective_checks(s,s['checks']),app.state.rulebook)
     assert result['final_score'] is None and float(result['coverage'])<1
     assert submit(c,expected_revision=1,target_id=next(iter(blocked)),decision='confirm').status_code==422
+
+
+@pytest.mark.parametrize('scope,key', [('root','owner'),('task','owner'),('task','user_id')])
+def test_declared_task_owner_protects_read_and_write(tmp_path,scope,key):
+    app,c=setup(tmp_path)
+    with app.state.tasks.transaction() as db:
+        metadata=json.loads(db.execute('SELECT results FROM tasks WHERE task_id=?',('t',)).fetchone()[0])
+        target=metadata if scope=='root' else metadata['task']
+        target[key]='another-user'
+        db.execute('UPDATE tasks SET results=? WHERE task_id=?',(json.dumps(metadata),'t'))
+    assert submit(c).status_code==403
+    assert c.get('/tasks/t/review-dispositions',headers={'X-User':'reviewer'}).status_code==403
+    assert c.get('/tasks/t/review-dispositions',headers={'X-User':'another-user'}).status_code==200
+
+
+def test_disposition_text_is_bounded_and_html_escaped(tmp_path):
+    app,c=setup(tmp_path)
+    assert submit(c,decision='confirm',search_scope='x'*4001).status_code==422
+    assert submit(c,reason='<script>alert(1)</script>').status_code==200
+    html=c.get('/?task_id=t').text
+    assert '<script>alert(1)</script>' not in html
+    assert '&lt;script&gt;alert(1)&lt;/script&gt;' in html
