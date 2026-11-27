@@ -24,11 +24,13 @@ PYTHONPATH=backend/src python scripts/prepare_beta_workspace.py /path/V4.zip --o
 
 PDF摘录导入标记reference-package-v4/partial，不宣称完成逐页PDF语义审核。E02单位只归一受控分子别名，分母不改；分母与边界仍未知，比较继续受限。目标不自动选定，最终评分仍为空。
 
+观测年度写入持久证据的column_year，正式复核会拒绝把2023年证据用于2024年指标。检查／目标原文没有唯一年度时保留空值，不用报告发布年份猜测数据年份。此前生成且缺少观测年度的V4业务副本须先保留备份，再从原包生成新目录；预检会拒绝旧副本。若旧副本已有人工操作，先另行核对迁移方案，不覆盖审计历史。
+
 ## 配置与预检
 
 1. 使用已有授权服务器与域名，把域名解析到服务器。仅开放80/443，app端口不得映射到公网。此处不创建云资源或产生费用。
 2. 将生成目录复制到服务器专用数据目录。Linux上需让容器UID 10001可读写该目录及文件，其他无关用户不可访问。停止服务后再复制/备份SQLite，或使用SQLite在线备份API；不要在写入中直接复制数据库文件。
-3. 复制deploy/env.example为deploy/.env，文件权限设为600。填写真实域名、审核账号、bcrypt哈希、数据目录和至少32字符的随机网关密钥。网关账号必须与manifest.json及数据库owner相同。不要放入模型API Key。
+3. 复制deploy/env.example为deploy/.env，文件权限设为600。填写真实域名、审核账号、bcrypt哈希、数据目录和至少32字符的随机网关密钥。密码哈希必须使用单引号字面值：`ESG_REVIEWER_PASSWORD_HASH='$2a$...完整哈希...'`；保留生成值中的每个`$`，不要改成双引号、去掉引号或手工加`$$`。网关账号必须与manifest.json及数据库owner相同。不要放入模型API Key。
 4. 密码哈希通过交互式命令生成，避免把密码放在命令行历史：
 
 ```sh
@@ -41,6 +43,8 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
 ```
 
 真实凭据不提交仓库。不要公开`docker compose config`的完整输出，它可能包含环境密钥。部署后固定已验证的镜像摘要；当前Caddy 2标签用于构建准备，不作为可重复发布的锁定镜像。网关配置依据Caddy官方basic_auth、reverse_proxy和request_body文档。
+
+预检需要本机安装 Docker Compose CLI，但不连接 Docker daemon、不构建或启动容器。它会私下读取 `config --environment` 的插值环境并与配置文件核对，发现 shell 覆盖、哈希损坏或工具失败即拒绝，输出不包含完整环境或秘密值。`config --environment` 本身也包含敏感值，不要手动公开其输出。预检通过不代替下一步真实网关配置及登录验证。
 
 ## 实机发布门槛（未完成前不放行）
 

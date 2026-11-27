@@ -143,12 +143,12 @@ def adapt(package):
             if r['是否入包'] == '是':
                 require(r['SHA-256'] in pdf_hashes, f"Missing/mismatched PDF: {r['report_id']}")
         evidence = {}
-        def register(eid, rid, page, text, source, kind):
+        def register(eid, rid, page, text, source, kind, column_year=None):
             require(eid and rid in report_index and text.strip(), f'Incomplete evidence: {eid}')
             pages = [int(x) for x in re.findall(r'\d+', page)]
             require((pages or kind == 'derived_reference') and all(1 <= p <= int(report_index[rid]['页数']) for p in pages), f'Invalid physical page: {eid}')
             item = dict(evidence_id=eid, report_id=rid, physical_pages=pages, text=text,
-                        source=source, kind=kind, verification_status='unreviewed')
+                        source=source, kind=kind, column_year=column_year, verification_status='unreviewed')
             require(eid not in evidence or evidence[eid] == item, f'Conflicting evidence ID: {eid}')
             evidence[eid] = item
         for r in observations:
@@ -169,7 +169,8 @@ def adapt(package):
                     require(source_value.replace(',', '') == r['raw_value'].replace(',', ''), 'Source value mismatch')
             register(r['evidence_id'], r['report_id'], r['physical_page'], src['原文摘录'],
                      f"{r['source_workbook']}/{r['source_sheet']}!{r['row_ref']}",
-                     'derived_reference' if r['status'] == 'derived' and r['import_batch'] == 'test_case' and not boolean(r['usable_for_scoring']) else 'observation')
+                     'derived_reference' if r['status'] == 'derived' and r['import_batch'] == 'test_case' and not boolean(r['usable_for_scoring']) else 'observation',
+                     column_year=int(r['year']) if re.fullmatch(r'20[0-9]{2}', r['year']) else None)
         for r in checks:
             matches = [n for n in books if PurePosixPath(n).name == r['source_workbook']]
             require(len(matches) == 1, 'Missing check workbook')

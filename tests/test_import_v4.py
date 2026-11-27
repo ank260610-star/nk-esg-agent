@@ -59,6 +59,9 @@ def package(tmp_path):
 def test_registered_sources_and_isolated_sqlite(package,tmp_path):
     p=package();out=tmp_path/'out';result=dry_run(p,out)
     assert result['counts']['evidence']==22 and result['automatically_confirmed']==0
+    imported=adapt(p)['evidence']
+    assert next(e for e in imported if e['evidence_id']=='e1')['column_year']==2024
+    assert next(e for e in imported if e['evidence_id']=='target1')['column_year'] is None
     assert result['production_written']is False and result['final_score']is None
     with sqlite3.connect(out/'staging.sqlite3')as db:
         candidate=json.loads(db.execute('SELECT payload FROM final_candidates').fetchone()[0])

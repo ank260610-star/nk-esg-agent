@@ -89,7 +89,8 @@ def prepare_workspace(package, destination, owner):
                                                             source='V4', pending_not_resolved=True)))
         for r in reports:
             items = [dict(evidence_id=e['evidence_id'], report_id=e['report_id'], pdf_page=e['physical_pages'][0],
-                          printed_page=None, kind='text', text=e['text']) for e in evidence if e['report_id'] == r['report_id']]
+                          printed_page=None, kind='text', text=e['text'], column_year=e.get('column_year'))
+                     for e in evidence if e['report_id'] == r['report_id']]
             summary = dict(page_count=int(r['页数']), status='partial', issues=[dict(code='REFERENCE_IMPORT',
                            message='资料摘录导入；尚未逐页核验PDF', report_id=r['report_id'], pdf_page=None, record_id=None)])
             db.execute('INSERT INTO task_parses VALUES(?,?,?,?,?,?)', (task_id, r['report_id'], r['SHA-256'],
