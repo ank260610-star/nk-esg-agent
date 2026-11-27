@@ -50,7 +50,9 @@ def test_foreign_and_unowned_resources_are_hidden(secured,path):
 
 def test_pdf_and_export_download_ownership(secured):
     app,c=secured
-    assert c.get('/api/reports/alice_task_report/pdf',headers=headers()).status_code==200
+    pdf=c.get('/api/reports/alice_task_report/pdf',headers=headers())
+    assert pdf.status_code==200 and pdf.headers['x-frame-options']=='SAMEORIGIN'
+    assert "frame-ancestors 'self'" in pdf.headers['content-security-policy']
     aid=app.state.artifacts.list_for_task('bob_task')[0]['artifact_id']
     assert c.get('/api/artifacts/'+aid,headers=headers()).status_code==404
     assert c.get('/api/artifacts/'+aid,headers=headers('bob')).status_code==200

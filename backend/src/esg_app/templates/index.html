@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>澄境 · 环境披露业务工作台</title>
-<link rel="stylesheet" href="/static/business.css?v=phase1b"><script type="module" src="/static/js/business.js?v=phase1c"></script>
+<link rel="stylesheet" href="/static/business.css?v=phase1b"><script type="module" src="/static/js/business.js?v=save-lifecycle-1"></script>
 </head>
 <body>
 <a class="skip" href="#metrics">跳到指标与证据</a>
@@ -111,7 +111,7 @@
   <h2 id="review">人工复核 · 检查建议</h2><p class="muted">理由必填。保存后以服务器新版本刷新全页；N/A等复杂操作暂未接入。</p>
   {% for c in checks %}<details class="check-card" {% if loop.first %}open{% endif %}><summary>{{ c.check_id }} · {{ c.status|status_label }} <small>{{ '事实未证实' if review_dispositions.get(('check', c.check_id), {}).get('decision') == 'insufficient_evidence' else c.review_state|default('unreviewed')|status_label }}</small></summary><p>{{ rule_titles.get(c.check_id, c.check_id) }}</p><p>来源：{{ c.origin|present }}</p><p>{{ c.reason or c.missing_information or '未提供判定理由' }}</p>{% if c.suggestion %}<p>建议：{{ c.suggestion }}</p>{% endif %}
     {% for eid in c.evidence_ids|default([]) %}{% set ev=evidence_by_id.get(eid) %}{% if ev and ev.viewer_url %}<a data-evidence="{{ eid }}" href="{{ ev.viewer_url }}" target="_blank" rel="noopener">证据 · PDF p{{ ev.pdf_page }}</a>{% else %}<span class="warn">证据缺失：{{ eid }}</span>{% endif %}{% endfor %}
-    {{ disposition_form('check', c.check_id) }}
+    {% if c.is_current is not defined or c.is_current %}{{ disposition_form('check', c.check_id) }}{% else %}<p class="warn">已因指标变更过期，需重新复核；旧结论不计分。请核对当前证据后保存本项复核。</p>{% endif %}
     <form data-operation="review" data-draft="check-{{ c.check_id }}" action="/tasks/{{ task.task_id|urlencode }}/review" method="post"><input type="hidden" name="action" value="set_check_status"><input type="hidden" name="check_id" value="{{ c.check_id }}"><input type="hidden" name="expected_revision" value="{{ task.revision }}"><label>复核状态<select name="new_status"><option value="unknown">未知</option><option value="met">满足</option>{% if c.check_id not in ['Q02'] %}<option value="partial">部分满足</option>{% endif %}<option value="not_met">不满足</option></select></label><label>复核理由<textarea name="reason" required maxlength="2000" placeholder="说明原文依据或确认未披露的检查过程"></textarea></label><button type="submit" {% if busy %}disabled{% endif %}>保存 {{ c.check_id }} 复核</button></form>
   </details>{% else %}<p>尚无检查建议，无法逐项复核。</p>{% endfor %}
   <section id="export"><h2>当前版本导出</h2><form data-operation="export" data-draft="export" action="/tasks/{{ task.task_id|urlencode }}/exports" method="post"><input type="hidden" name="expected_revision" value="{{ task.revision }}"><button type="submit" {% if busy %}disabled{% endif %}>生成 Markdown / CSV / JSON</button></form><p class="muted">保存成功后重新取得服务端产物；页面不自行生成分析报告。</p>

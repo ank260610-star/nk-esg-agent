@@ -117,4 +117,7 @@ def install_public_gate(app, settings):
                                  'Referrer-Policy': 'same-origin', 'X-Frame-Options': 'DENY',
                                  'Strict-Transport-Security': 'max-age=31536000',
                                  'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"})
+        if request.url.path.startswith('/api/reports/') and response.headers.get('content-type', '').startswith('application/pdf'):
+            response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+            response.headers['Content-Security-Policy'] = response.headers['Content-Security-Policy'].replace("frame-ancestors 'none'", "frame-ancestors 'self'")
         return response

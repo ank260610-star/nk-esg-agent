@@ -499,7 +499,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if db.execute('SELECT 1 FROM business_state WHERE task_id=?', (task_id,)).fetchone():
                     business = read_business(db, task_id)
                     checks, comparisons = business['checks'], business['comparisons']
-        checks = [c for c in checks if c.get('is_current', True)]
+        # Keep invalidated checks visible for explicit human re-review; scoring still excludes them.
+        checks = list(checks)
         comparisons = [c for c in comparisons if c.get('is_current', True)]
         records = [r for r in app.state.records.list_by_task(task_id) if r.get('is_current', True)] if task_id else []
         from .review_dispositions import effective_checks
