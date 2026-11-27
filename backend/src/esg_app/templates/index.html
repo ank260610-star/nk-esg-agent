@@ -105,6 +105,9 @@
 <aside class="findings" tabindex="0">
   <div class="section-label">FINDINGS</div><h2>评分与未知项</h2>
   {% if score %}<section class="score-card"><p class="warn">{{ score.label|status_label }} · 项目自建试验规则</p><dl><dt>证据覆盖率</dt><dd>{{ score.coverage|percentage }}</dd><dt>参考分</dt><dd>{{ score.reference_score|points }}</dd><dt>可能区间</dt><dd>[{{ score.lower_bound|points }}, {{ score.upper_bound|points }}]</dd><dt>最终分</dt><dd>{{ score.final_score|points }}</dd></dl><p class="muted">未知不计0；未复核建议不能视为已认可结论。</p></section>{% else %}<p>还没有有效评分结果。</p>{% endif %}
+  {% if import_pending_audit %}<details class="check-card"><summary>导入时的待确认记录（原始审计快照）</summary>
+  <p class="muted">此处保留原始分流，不表示已完成核查；当前处理状态见各指标的人工处置。</p>
+  {% for item in import_pending_audit %}<article><strong>{{ item.obs_id }} · {{ item.year }} · {{ item.raw_indicator }}</strong><p>{{ item.import_batch }}：{{ item.caveat }}</p><p>缺失材料：{{ item.missing_materials }}</p></article>{% endfor %}</details>{% endif %}
   <h2 id="review">人工复核 · 检查建议</h2><p class="muted">理由必填。保存后以服务器新版本刷新全页；N/A等复杂操作暂未接入。</p>
   {% for c in checks %}<details class="check-card" {% if loop.first %}open{% endif %}><summary>{{ c.check_id }} · {{ c.status|status_label }} <small>{{ '事实未证实' if review_dispositions.get(('check', c.check_id), {}).get('decision') == 'insufficient_evidence' else c.review_state|default('unreviewed')|status_label }}</small></summary><p>{{ rule_titles.get(c.check_id, c.check_id) }}</p><p>来源：{{ c.origin|present }}</p><p>{{ c.reason or c.missing_information or '未提供判定理由' }}</p>{% if c.suggestion %}<p>建议：{{ c.suggestion }}</p>{% endif %}
     {% for eid in c.evidence_ids|default([]) %}{% set ev=evidence_by_id.get(eid) %}{% if ev and ev.viewer_url %}<a data-evidence="{{ eid }}" href="{{ ev.viewer_url }}" target="_blank" rel="noopener">证据 · PDF p{{ ev.pdf_page }}</a>{% else %}<span class="warn">证据缺失：{{ eid }}</span>{% endif %}{% endfor %}
