@@ -98,7 +98,34 @@ def test_review_conflict_preserves_server_state_and_refreshes_versions():
     html = client.get("/").text
     assert 'data-revision="8"' in html
     assert 'name="expected_revision" value="7"' not in html
-    assert "指标（待接口）" in html or "指标修正等待正式用户接口" in html
+    assert "指标确认接口尚未提供" not in html
+
+
+def test_metric_form_save_refresh_audit_and_conflict(tmp_path):
+    from test_metric_review import setup, seed, unknown_record, correction_body
+    from uuid import uuid4
+    app, client = setup(tmp_path)
+    seed(app, unknown_record())
+    html = client.get('/?task_id=t1').text
+    assert 'data-operation="metric"' in html
+    assert 'name="c_value"' in html and 'name="null_value"' in html
+    assert 'value="ev1" selected' in html
+    assert 'data-audit-events' in html
+    body = correction_body()
+    key = str(uuid4())
+    response = client.post('/tasks/t1/metric-reviews', json=body, headers={'Idempotency-Key':key})
+    assert response.status_code == 200, response.text
+    html = client.get('/?task_id=t1').text
+    assert 'data-revision="4"' in html
+    new_id = response.json()['data']['record']['record_id']
+    assert f'data-draft="metric-{new_id}"' in html
+    assert 'data-draft="metric-r_E02_2024"' not in html
+    assert '0.1300' in html
+    events = client.get('/tasks/t1/metric-reviews').json()['data']['events']
+    assert events[0]['after']['value'] == '0.1300'
+    assert client.post('/tasks/t1/metric-reviews', json=body, headers={'Idempotency-Key':str(uuid4())}).status_code == 409
+    assert client.post('/tasks/t1/metric-reviews', json=body, headers={'Idempotency-Key':key}).json() == response.json()
+    assert all(not a['is_current'] for a in app.state.artifacts.list_for_task('t1'))
 
 
 def test_status_and_answers_are_persisted_not_simulated():

@@ -5,3 +5,5 @@
 .artifacts a{display:block;overflow-wrap:anywhere;padding:3px 0}
 
 .artifact-name{display:block;overflow-wrap:anywhere;margin-bottom:6px}.artifacts button{font-size:.8rem;padding:5px 12px}
+.metric-editor,.audit-panel{margin:16px 0;padding:12px;border:1px solid var(--line);border-radius:8px}.metric-editor fieldset{min-width:0;border:1px solid var(--line);margin:12px 0;padding:12px}.metric-editor textarea{min-height:48px}.metric-editor select[multiple]{min-height:110px}.audit-panel pre{max-height:380px;overflow:auto}
+.audit-diff{width:100%;table-layout:fixed;border-collapse:collapse;font-size:.75rem}.audit-diff td,.audit-diff th{border:1px solid var(--line);padding:6px;overflow-wrap:anywhere;text-align:left}
