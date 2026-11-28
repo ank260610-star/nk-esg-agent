@@ -23,6 +23,7 @@ STATUS_LABELS = {
     "queued": "排队中",
     "running": "运行中",
     "waiting_review": "待人工复核",
+    "waiting_budget": "费用检查点暂停，待核对授权",
     "completed": "本轮运行结束",
     "completed_with_limitations": "核查流程已完成，存在使用限制",
     "failed": "运行失败",

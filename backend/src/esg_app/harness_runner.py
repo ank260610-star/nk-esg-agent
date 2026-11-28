@@ -92,9 +92,11 @@ def run_agent(
         raise RuntimeError("DEEPSEEK_API_KEY missing; real Harness run not attempted")
     from deepseek_harness import DeepSeekHarness  # 延迟导入，离线测试不需要 SDK
 
-    with DeepSeekHarness(
-        **build_sdk_kwargs(settings, token=token, task_id=task_id)
-    ) as harness:
-        if resume:
-            return harness.resume_session(session_id).run(prompt)
-        return harness.run(prompt, session_id=session_id)
+    from .budget_provider import sdk_gateway
+    with sdk_gateway(os.environ['DEEPSEEK_API_KEY']) as (base_url, gateway_token):
+        kwargs = build_sdk_kwargs(settings, token=token, task_id=task_id)
+        kwargs['env']['DSH_API_KEY'] = ''
+        with DeepSeekHarness(**kwargs, base_url=base_url, api_key=gateway_token) as harness:
+            if resume:
+                return harness.resume_session(session_id).run(prompt)
+            return harness.run(prompt, session_id=session_id)

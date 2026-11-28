@@ -92,9 +92,18 @@ def main():
         "ESG_DSH_HOME",
         "ESG_WORKSPACE",
         "ESG_HARNESS_PATCH",
+        "ESG_BUDGET_PATH",
+        "ESG_BUDGET_CAP_MICRO",
     ]:
         if not os.environ.get(name, "").strip():
             missing.append(name)
+    try:
+        cap = int(os.environ.get('ESG_BUDGET_CAP_MICRO', '0'))
+        checkpoint = int(os.environ.get('ESG_BUDGET_CHECKPOINT_MICRO', '5000000'))
+        if not 0 < cap <= 10000000 or not 0 < checkpoint <= 10000000:
+            missing.append('nonzero CNY budget within 10 yuan')
+    except ValueError:
+        missing.append('integer micro-CNY budget settings')
     if not importlib.util.find_spec("deepseek_harness"):
         missing.append("deepseek-harness-sdk==0.2.2rc2")
     if not (ROOT / "harness-plugin/dist/index.js").is_file():

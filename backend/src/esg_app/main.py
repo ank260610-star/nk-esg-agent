@@ -726,7 +726,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         prompt = json.dumps({'task_id':task_id,'mode':mode,'revision':rec.revision,'user_question':question},ensure_ascii=False)
         session_id = f"sess_{uuid.uuid4().hex[:12]}"
         if mode == 'resume':
-            previous = [r for r in app.state.runs.list_for_task(task_id) if r.status.value=='waiting_review']
+            previous = [r for r in app.state.runs.list_for_task(task_id) if r.status.value in ('waiting_review','waiting_budget')]
             if not previous:
                 return JSONResponse(status_code=422,content=error_envelope('INVALID_STATE','No review-paused session is available to resume'))
             session_id = previous[-1].session_id
