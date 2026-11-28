@@ -5,6 +5,11 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Settings:
+    public_mode: bool = False
+    public_origin: str = ""
+    proxy_secret: str = ""
+    max_request_bytes: int = 1_048_576
+    requests_per_minute: int = 120
     host: str = "127.0.0.1"
     port: int = 8000
     # 默认拒绝：只有显式列入的白名单工具名可被 Agent 调用
@@ -39,6 +44,11 @@ class Settings:
         import os
 
         return cls(
+            public_mode=os.environ.get("ESG_PUBLIC_MODE", "0") == "1",
+            public_origin=os.environ.get("ESG_PUBLIC_ORIGIN", ""),
+            proxy_secret=os.environ.get("ESG_PROXY_SECRET", ""),
+            max_request_bytes=int(os.environ.get("ESG_MAX_REQUEST_BYTES", "1048576")),
+            requests_per_minute=int(os.environ.get("ESG_REQUESTS_PER_MINUTE", "120")),
             harness_enabled=os.environ.get("ESG_HARNESS_ENABLED", "0") == "1",
             harness_patch=os.environ.get("ESG_HARNESS_PATCH", ""),
             agent_api_base_url=os.environ.get(

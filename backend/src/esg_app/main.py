@@ -72,7 +72,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Task 6 导出：产物目录由服务端生成，下载仅按 artifact_id 查表
     # 文件数据库的产物放在同一数据目录；内存配置使用运行目录的 data/。
     data_dir = Path(settings.database_path).parent if settings.database_path != ":memory:" else Path("data")
-    app.state.artifacts = ArtifactStore(data_dir / "artifacts", app.state.tasks)
+    app.state.artifacts = ArtifactStore(data_dir / "artifacts", app.state.tasks, portable=settings.public_mode)
     app.state.exports_by_task: dict[str, dict] = {}
     # 已登记报告的真实文件路径只存在服务端映射，页面只得到 report_id
     app.state.report_paths: dict[str, Path] = {}
@@ -499,7 +499,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if db.execute('SELECT 1 FROM business_state WHERE task_id=?', (task_id,)).fetchone():
                     business = read_business(db, task_id)
                     checks, comparisons = business['checks'], business['comparisons']
-        checks = [c for c in checks if c.get('is_current', True)]
+        # Keep invalidated checks visible for explicit human re-review; scoring still excludes them.
+        checks = list(checks)
         comparisons = [c for c in comparisons if c.get('is_current', True)]
         records = [r for r in app.state.records.list_by_task(task_id) if r.get('is_current', True)] if task_id else []
         from .review_dispositions import effective_checks
@@ -535,6 +536,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             disposition_state = read_business(db, task_id) if task_id else dict(records=[], checks=[])
         disposition_map = {(d['target_type'], d['target_id']): d for d in visible_dispositions(disposition_state)}
         response = templates.TemplateResponse(request, "index.html", {
+            "import_pending_audit": [r for r in business.get("source_import_observations", []) if r.get("pending_status") == "pending"],
             "review_dispositions": disposition_map,
             "task": task_view,
             "report_ids": (task_view or {}).get("report_ids", []),
@@ -555,7 +557,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         })
         # 本地单用户原型：访问页面即建立会话 cookie，浏览器表单无需手写 header
         response.headers["Cache-Control"] = "no-store"
-        response.set_cookie("esg_user", "local_user", httponly=True, samesite="lax")
+        if not settings.public_mode:
+            response.set_cookie("esg_user", "local_user", httponly=True, samesite="lax")
         return response
 
     @app.get("/api/reports/{report_id}/pdf")
@@ -569,6 +572,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", report_id):
             return JSONResponse(status_code=404, content=error_envelope("NOT_FOUND", "report not found"))
         path = app.state.report_paths.get(report_id) or app.state.tasks.report_path(report_id)
+        if settings.public_mode and path is not None:
+            path = (data_dir / Path(path).name).resolve()
+            if data_dir.resolve() not in path.parents:
+                path = None
         if path is None or not Path(path).exists():
             return JSONResponse(status_code=404, content=error_envelope("NOT_FOUND", "report not found"))
         return FileResponse(str(path), media_type="application/pdf")
@@ -764,4 +771,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                          "error": run.error, "revision": run.revision},
                 "error": None, "task_id": task_id}
 
+    from .public_gate import install_public_gate
+    install_public_gate(app, settings)
     return app

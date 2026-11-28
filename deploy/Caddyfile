@@ -1,0 +1,15 @@
+{$ESG_PUBLIC_HOST} {
+    basic_auth {
+        {$ESG_REVIEWER_USER} {$ESG_REVIEWER_PASSWORD_HASH}
+    }
+    request_body {
+        max_size 1MB
+    }
+    reverse_proxy app:8000 {
+        header_up -X-User
+        header_up -Cookie
+        header_up -Authorization
+        header_up X-ESG-User {http.auth.user.id}
+        header_up X-ESG-Proxy-Secret {$ESG_PROXY_SECRET}
+    }
+}

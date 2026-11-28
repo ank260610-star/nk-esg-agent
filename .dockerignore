@@ -1,0 +1,10 @@
+.git
+.env
+*.env
+data
+.wheels
+node_modules
+__pycache__
+*.sqlite3
+*.pdf
+*.zip

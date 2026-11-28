@@ -94,6 +94,7 @@ document.addEventListener('submit',async event=>{
   }
   if(body.reason!==undefined&&!body.reason.trim()){notify('请填写复核理由。',true);return;}
   if(body.question!==undefined&&!body.question.trim()){notify('请输入问题。',true);return;}
+  const writeButtons=[...root().querySelectorAll('form[data-operation] button[type=submit]')].map(button=>({button,disabled:button.disabled}));
   saveDrafts();pending=true;clearPoll();disableWrites();
   const operation=form.dataset.operation,draft=form.dataset.draft,task=root().dataset.taskId;
   let confirmed=false;
@@ -118,8 +119,9 @@ document.addEventListener('submit',async event=>{
     notify(confirmed?`服务端已受理，但页面刷新未完成。请刷新核对，勿重复提交。${error.message}`:error.message,true);
   }finally{
     pending=false;
-    if(stale||confirmed===false){disableWrites();notify(`${feedback.textContent} ${unresolved?'请点击“核对原请求结果（同键重试）”，保留当前页面。':'点击“刷新任务”核对后再操作。'}`,true);}
-    // Do not resubmit a write or restart a run after ambiguous transport failure.
+    if(stale||unresolved){disableWrites();notify(`${feedback.textContent} ${unresolved?'请点击“核对原请求结果（同键重试）”，保留当前页面。':'点击“刷新任务”核对后再操作。'}`,true);}
+    if(!stale&&!unresolved&&!confirmed){for(const {button,disabled} of writeButtons)button.disabled=disabled;}
+    // A definite validation rejection leaves the existing form editable; ambiguous outcomes remain blocked.
   }
 });
 retryButton.addEventListener('click',async()=>{

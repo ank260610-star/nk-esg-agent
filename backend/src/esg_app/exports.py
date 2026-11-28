@@ -48,8 +48,9 @@ def csv_safe_cell(value) -> str:
 class ArtifactStore:
     """登记产物：仅以 artifact_id 为键，目录/文件名由服务端生成。"""
 
-    def __init__(self, root: Path | str, repository=None):
+    def __init__(self, root: Path | str, repository=None, portable=False):
         self.repository = repository
+        self.portable = portable
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self._meta: dict[str, dict] = {}
@@ -118,7 +119,7 @@ class ArtifactStore:
         meta = self.get_meta(artifact_id)
         if meta is None:
             return None
-        path = Path(meta["_path"]).resolve()
+        path = ((self.root / meta["filename"]) if self.portable else Path(meta["_path"])).resolve()
         root = self.root.resolve()
         if root not in path.parents:
             return None

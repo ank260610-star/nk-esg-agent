@@ -1,0 +1,51 @@
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    environment:
+      ESG_PUBLIC_MODE: '1'
+      ESG_PUBLIC_ORIGIN: https://${ESG_PUBLIC_HOST:?Set the public hostname}
+      ESG_PROXY_SECRET: ${ESG_PROXY_SECRET:?Generate a random proxy secret}
+      ESG_DATABASE_PATH: /data/business.sqlite3
+      ESG_HARNESS_ENABLED: '0'
+      ESG_EXTRACTION_MODEL: ''
+      ESG_MAX_REQUEST_BYTES: '1048576'
+      ESG_REQUESTS_PER_MINUTE: '120'
+    volumes:
+      - ${ESG_BETA_DATA_DIR:?Prepare an owner-bound business directory}:/data
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1
+  gateway:
+    image: caddy:2-alpine
+    environment:
+      ESG_PUBLIC_HOST: ${ESG_PUBLIC_HOST:?Set the public hostname}
+      ESG_PROXY_SECRET: ${ESG_PROXY_SECRET:?Generate a random proxy secret}
+      ESG_REVIEWER_USER: ${ESG_REVIEWER_USER:?Set an explicit reviewer username}
+      ESG_REVIEWER_PASSWORD_HASH: ${ESG_REVIEWER_PASSWORD_HASH:?Generate a bcrypt hash}
+    ports: ['80:80', '443:443']
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    mem_limit: 256m
+    cpus: 1
+    restart: unless-stopped
+volumes:
+  caddy_data:
+  caddy_config:
