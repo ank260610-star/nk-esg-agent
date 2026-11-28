@@ -58,7 +58,7 @@
     {% if not runner_available %}<p class="muted">运行宿主未配置：可以查看、复核检查项和导出，不能启动或继续模型任务。</p>{% endif %}
     <div class="run-actions">
       <form data-operation="run" data-draft="start" action="/tasks/{{ task.task_id|urlencode }}/agent-runs" method="post"><input type="hidden" name="mode" value="full_evaluation"><input type="hidden" name="expected_revision" value="{{ task.revision }}"><button type="submit" {% if busy or not runner_available %}disabled{% endif %}>启动分析</button></form>
-      <form data-operation="run" data-draft="resume" action="/tasks/{{ task.task_id|urlencode }}/agent-runs" method="post"><input type="hidden" name="mode" value="resume"><input type="hidden" name="expected_revision" value="{{ task.revision }}"><button type="submit" {% if busy or not runner_available or run_status != 'waiting_review' %}disabled{% endif %}>继续原会话</button></form>
+      <form data-operation="run" data-draft="resume" action="/tasks/{{ task.task_id|urlencode }}/agent-runs" method="post"><input type="hidden" name="mode" value="resume"><input type="hidden" name="expected_revision" value="{{ task.revision }}"><button type="submit" {% if busy or not runner_available or run_status not in ['waiting_review','waiting_budget'] %}disabled{% endif %}>继续原会话</button></form>
     </div><p class="muted">取消接口尚未提供，页面不提供假取消按钮。超时或断连时先查询状态。</p>
   </section>
   <div class="tabs" role="tablist" aria-label="分析区域"><button role="tab" id="metrics-tab" aria-controls="metrics" aria-selected="true" data-panel="metrics">核心指标 <span>{{ records|length }}</span></button><button role="tab" id="questions-tab" aria-controls="questions" aria-selected="false" tabindex="-1" data-panel="questions">分析与问答</button></div>

@@ -12,6 +12,7 @@ class RunStatus(str, Enum):
     QUEUED = "queued"
     RUNNING = "running"
     WAITING_REVIEW = "waiting_review"
+    WAITING_BUDGET = "waiting_budget"
     COMPLETED = "completed"
     COMPLETED_WITH_LIMITATIONS = "completed_with_limitations"
     FAILED = "failed"

@@ -8,6 +8,7 @@ import secrets
 from importlib.resources import files
 
 from .harness_runner import run_agent
+from .model_budget import BudgetBlocked
 from .parse_repository import token_identity, read_business
 from .run_jobs import RunStatus
 from .review_dispositions import review_complete, visible_dispositions, restricted_check_ids
@@ -54,6 +55,12 @@ def make_agent_starter(app, sdk_run=run_agent):
                 task_id=task_id,
                 resume=mode == "resume",
             )
+        except BudgetBlocked:
+            run.status = RunStatus.WAITING_BUDGET
+            run.answer = '合并费用预留触及检查点或上限，已暂停；需核对账本及授权后继续原会话。'
+            run.revision = app.state.tasks.get(task_id).revision
+            app.state.runs.save(run)
+            return
         except Exception:
             raise RuntimeError(
                 "Harness execution failed; task outcome must be checked before retry"

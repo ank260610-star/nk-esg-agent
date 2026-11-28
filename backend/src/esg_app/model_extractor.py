@@ -7,10 +7,7 @@ import re
 import unicodedata
 from decimal import Decimal, InvalidOperation
 import os
-import socket
 from importlib.resources import files
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 from jsonschema import Draft202012Validator, ValidationError
 
@@ -19,8 +16,6 @@ from .schemas import make_issue
 
 PROMPT_VERSION = "metric-extraction-v0.2.1-json-object"
 EXTRACTOR_VERSION = "deepseek-http-evidence-v1"
-ENDPOINT = "https://api.deepseek.com/chat/completions"
-MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
 
 class ModelOutputError(ValueError):
@@ -36,31 +31,10 @@ class ModelCandidates(list):
         self.issues = issues or []
 
 
-class NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
-
-
 def http_completion(payload, key, timeout):
-    request = Request(
-        ENDPOINT,
-        data=json.dumps(payload).encode(),
-        method="POST",
-        headers={"Content-Type": "application/json", "Authorization": "Bearer " + key},
-    )
-    try:
-        with build_opener(NoRedirect()).open(request, timeout=timeout) as response:
-            body = response.read(MAX_RESPONSE_BYTES + 1)
-        if len(body) > MAX_RESPONSE_BYTES:
-            raise ModelOutputError("Model response exceeds limit")
-        return json.loads(body)
-    except (TimeoutError, socket.timeout):
-        raise TimeoutError("Model request timed out") from None
-    except (HTTPError, URLError, ValueError):
-        # Provider response bodies and exception URLs may contain sensitive data.
-        raise ModelOutputError(
-            "Model request failed or returned invalid JSON"
-        ) from None
+    from .budget_provider import completion
+    body, _ = completion(payload, key, timeout, 'extractor')
+    return json.loads(body)
 
 
 class DeepSeekExtractor:
